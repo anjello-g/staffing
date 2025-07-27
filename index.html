@@ -875,7 +875,7 @@
                 // Get status styling for the entire row
                 const statusInfo = getStatusInfo(agent.status);
                 
-                row.className = `border-b ${rowClass} ${statusInfo.class}`;
+                row.className = `${rowClass} ${statusInfo.class}`;
                 row.innerHTML = `
                     <td class="py-2 px-3"><strong>${agent.name}</strong></td>
                     <td class="py-2 px-3">${agent.role}</td>
