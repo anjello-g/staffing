@@ -1,0 +1,1037 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="apple-touch-icon" sizes="57x57" href="/apple-icon-57x57.png">
+    <link rel="apple-touch-icon" sizes="60x60" href="/apple-icon-60x60.png">
+    <link rel="apple-touch-icon" sizes="72x72" href="/apple-icon-72x72.png">
+    <link rel="apple-touch-icon" sizes="76x76" href="/apple-icon-76x76.png">
+    <link rel="apple-touch-icon" sizes="114x114" href="/apple-icon-114x114.png">
+    <link rel="apple-touch-icon" sizes="120x120" href="/apple-icon-120x120.png">
+    <link rel="apple-touch-icon" sizes="144x144" href="/apple-icon-144x144.png">
+    <link rel="apple-touch-icon" sizes="152x152" href="/apple-icon-152x152.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-icon-180x180.png">
+    <link rel="icon" type="image/png" sizes="192x192"  href="/android-icon-192x192.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="96x96" href="/favicon-96x96.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+    <link rel="manifest" href="/manifest.json">
+    <meta name="msapplication-TileColor" content="#ffffff">
+    <meta name="msapplication-TileImage" content="/ms-icon-144x144.png">
+    <meta name="theme-color" content="#ffffff">
+    <title>Forefront Staffing</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <style>
+        :root {
+            --knack-navy: #2c3e7a;
+            --knack-blue: #4285d6;
+            --knack-light-blue: #5bb3e8;
+            --knack-teal: #48c9d8;
+        }
+        .team-header { background: var(--knack-blue); }
+        .allocated { background-color: #dcfce7; border-left: 4px solid var(--knack-teal); }
+        .allocated-uncertain { background-color: #fef3c7; border-left: 4px solid #f59e0b; }
+        .not-allocated { background-color: #ffffff; border-left: 4px solid #f59e0b; }
+        .backup { background-color: #dbeafe; border-left: 4px solid #60a5fa; }
+        .backup-uncertain { background-color: #fef3c7; border-left: 4px solid #f59e0b; }
+        
+        /* Team card border status indicators */
+        .team-card-understaffed { background: #ef4444; box-shadow: 0 0 12px rgba(239, 68, 68, 0.3); }
+        .team-card-complete-no-backups { background: #eab308; box-shadow: 0 0 12px rgba(234, 179, 8, 0.3); }
+        .team-card-complete-with-backups { background: #22c55e; box-shadow: 0 0 12px rgba(34, 197, 94, 0.3); }
+        .team-card-overstaffed { background: #3b82f6; box-shadow: 0 0 12px rgba(59, 130, 246, 0.3); }
+        
+        /* Row background colors based on status */
+        .row-can-allocate { background-color: #dcfce7; }
+        .row-uncertain { background-color: #fef3c7; }
+        .row-cannot-allocate { background-color: #fecaca; }
+        
+        .draggable { cursor: move; }
+        .dragging { opacity: 0.5; }
+        .drop-zone { min-height: 50px; transition: all 0.3s ease; border-radius: 4px; }
+        .drop-zone.drag-over { background-color: #f3f4f6; border: 2px dashed var(--knack-blue); }
+        .drop-zone.invalid-drop { background-color: #fef2f2; border: 2px dashed #ef4444; }
+        .agent-item { transition: all 0.3s ease; }
+        .agent-item:hover { transform: translateY(-1px); box-shadow: 0 4px 6px -1px rgba(44, 62, 122, 0.2); }
+        .knack-btn { padding: 0.5rem 1.5rem; color: white; border-radius: 0.5rem; transition: all 0.3s ease; border: none; }
+        .knack-btn-primary { background: var(--knack-blue); }
+        .knack-btn-primary:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(44, 62, 122, 0.3); }
+        .knack-btn-secondary { background: linear-gradient(135deg, var(--knack-light-blue), var(--knack-teal)); }
+        .knack-btn-secondary:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(72, 201, 216, 0.3); }
+        .knack-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .knack-card { background: white; border-radius: 12px; box-shadow: 0 2px 8px rgba(44, 62, 122, 0.1); border-top: 3px solid var(--knack-teal); }
+        .knack-header { background: linear-gradient(135deg, var(--knack-navy) 0%, var(--knack-blue) 50%, var(--knack-light-blue) 100%); color: white; padding: 2rem 0; margin-bottom: 2rem; }
+        .history-tabs { border-bottom: 2px solid #e5e7eb; margin-bottom: 1rem; }
+        .history-tab { padding: 0.75rem 1.5rem; background: #f9fafb; border: 1px solid #d1d5db; border-bottom: none; margin-right: 0.25rem; cursor: pointer; transition: all 0.3s ease; }
+        .history-tab.active { background: white; border-bottom: 2px solid var(--knack-blue); color: var(--knack-blue); font-weight: 600; }
+        .history-tab:hover:not(.active) { background: #f3f4f6; }
+        .history-content { display: none; }
+        .history-content.active { display: block; }
+        .main-tabs { border-bottom: 2px solid #e5e7eb; margin-bottom: 1.5rem; }
+        .main-tab { padding: 1rem 2rem; background: #f9fafb; border: 1px solid #d1d5db; border-bottom: none; margin-right: 0.25rem; cursor: pointer; transition: all 0.3s ease; font-weight: 600; }
+        .main-tab.active { background: white; border-bottom: 3px solid var(--knack-teal); color: var(--knack-navy); }
+        .main-tab:hover:not(.active) { background: #f3f4f6; color: var(--knack-blue); }
+        .main-tab:disabled { opacity: 0.5; cursor: not-allowed; background: #f3f4f6; color: #9ca3af; }
+        .main-content { display: none; }
+        .main-content.active { display: block; }
+        
+        /* Status select styling */
+        .status-select {
+            padding: 0.25rem 0.5rem;
+            border: 1px solid #d1d5db;
+            border-radius: 0.375rem;
+            background: white;
+            font-size: 0.75rem;
+            min-width: 100px;
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+
+    <div class="knack-header">
+        <div class="max-w-7xl mx-auto px-4">
+            <h1 class="text-4xl font-bold text-center text-white">Forefront SCE Staffing</h1>
+        </div>
+    </div>
+
+    <div class="w-full mx-auto px-4">
+        <div class="w-[70%] mx-auto knack-card p-6 mb-6">
+            <!-- Main Tabs -->
+            <div class="main-tabs border-b-2 border-gray-200 mb-6">
+                <div class="flex">
+                    <div class="main-tab active" data-tab="roster">1. Load Agent Roster</div>
+                    <div class="main-tab" data-tab="allocation" id="allocationTab">2. Run & Edit Staffing</div>
+                    <div class="main-tab" data-tab="history" id="historyTab">3. Staffing History</div>
+                </div>
+            </div>
+
+            <!-- Roster Tab Content -->
+            <div id="roster-content" class="main-content active">
+                <div class="flex items-center space-x-4 mb-4">
+                    <input type="file" id="rosterFile" accept=".xlsx" class="flex-grow px-4 py-2 border rounded-lg">
+                    <button id="uploadBtn" class="knack-btn knack-btn-primary">
+                        Load Roster
+                    </button>
+                </div>
+                <span id="uploadStatus" class="text-sm text-gray-600 block"></span>
+            </div>
+
+            <!-- Allocation Tab Content -->
+            <div id="allocation-content" class="main-content">
+                <div class="flex items-center justify-center space-x-4">
+                    <label class="text-lg font-semibold">Select Day:</label>
+                    <select id="daySelect" class="px-4 py-2 border rounded-lg bg-white">
+                        <option value="monday">Monday</option>
+                        <option value="tuesday">Tuesday</option>
+                        <option value="wednesday">Wednesday</option>
+                        <option value="thursday">Thursday</option>
+                        <option value="friday">Friday</option>
+                    </select>
+                    <button id="allocateBtn" class="knack-btn knack-btn-primary">
+                        Allocate Agents
+                    </button>
+                </div>
+            </div>
+
+            <!-- History Tab Content -->
+            <div id="history-content" class="main-content">
+                <!-- History Sub-tabs -->
+                <div class="history-tabs border-b border-gray-200 mb-4">
+                    <div class="flex">
+                        <div class="history-tab active" data-tab="save">Save Current</div>
+                        <div class="history-tab" data-tab="retrieve">Load History</div>
+                    </div>
+                </div>
+
+                <!-- Save Sub-tab Content -->
+                <div id="save-content" class="history-content active">
+                    <h3 class="text-lg font-semibold mb-2">Save Current State</h3>
+                    <p class="text-sm text-gray-500 mb-3">Save the current staffing to an Excel file.</p>
+                    
+                    <div class="mb-3">
+                        <label for="forecastDate" class="block text-sm font-medium text-gray-700">Forecast Staffing Date:</label>
+                        <input type="date" id="forecastDate" name="forecastDate" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-knack-blue focus:border-knack-blue sm:text-sm">
+                    </div>
+                    <button id="saveDownloadBtn" class="w-full knack-btn knack-btn-secondary" disabled>
+                        Save & Download Allocation
+                    </button>
+                </div>
+
+                <!-- Retrieve Sub-tab Content -->
+                <div id="retrieve-content" class="history-content">
+                    <h3 class="text-lg font-semibold mb-2">Load Saved Staffing</h3>
+                    <p class="text-sm text-gray-500 mb-3">Load a saved staffing from the uploaded roster file.</p>
+                    
+                    <div id="noRosterMessage" class="text-amber-600 text-sm mb-3" style="display: none;">
+                        Please upload a roster file first to access saved staffing.
+                    </div>
+                    
+                    <div id="retrieveControls" class="hidden">
+                        <button id="loadSheetsBtn" class="w-full px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 text-sm mb-3">
+                            Find Staffing Sheets in Roster File
+                        </button>
+                        <select id="sheetSelect" class="w-full px-4 py-2 border rounded-lg bg-white mb-2"></select>
+                        <button id="loadAllocationBtn" class="w-full knack-btn knack-btn-primary" disabled>
+                            Load Selected Staffing
+                        </button>
+                    </div>
+                    <span id="retrieveStatus" class="text-sm text-gray-600 mt-2 block"></span>
+                </div>
+            </div>
+        </div>
+
+        <div id="allocationResults" class="mb-8" style="display: none;">
+            <h2 class="text-2xl font-bold mb-4">Team Staffing</h2>
+            <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3" id="teamAllocations"></div>
+        </div>
+
+        <div id="agentStatusList" class="w-[70%] mx-auto mb-8" style="display: none;">
+            <h2 class="text-2xl font-bold mb-4">Agent Status</h2>
+            <div class="bg-white rounded-lg shadow-lg p-6 overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead>
+                        <tr class="border-b-2 border-gray-200">
+                            <th class="text-left py-2 px-3">Name</th>
+                            <th class="text-left py-2 px-3">Role</th>
+                            <th class="text-left py-2 px-3">Skills</th>
+                            <th class="text-left py-2 px-3">Home Team</th>
+                            <th class="text-left py-2 px-3">Status</th>
+                            <th class="text-left py-2 px-3">Allocation</th>
+                        </tr>
+                    </thead>
+                    <tbody id="agentTableBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global State
+        let agentsData = [];
+        let currentAllocations = {};
+        let retrievedWorkbook = null;
+        let savedStaffingSheets = new Map();
+        let rosterWorkbook = null; 
+
+        // Team Requirements
+        const teamRequirements = {
+            monday: { A: 7, B: 5, C: 15, E: 11, F: 8, G: 8 },
+            tuesday: { A: 2, B: 5, C: 13, E: 11, F: 8, G: 6 },
+            wednesday: { A: 2, B: 5, C: 13, E: 11, F: 8, G: 6 },
+            thursday: { A: 2, B: 5, C: 13, E: 11, F: 8, G: 6 },
+            friday: { A: 2, B: 5, C: 13, E: 11, F: 8, G: 6 }
+        };
+
+        // Status categorization for allocation and display
+        const statusCategories = {
+            canAllocate: ['On Phone', 'Buffer', 'Backfill'],
+            uncertain: ['UA', 'RTWO'],
+            cannotAllocate: ['Not FTW', 'SL', 'PTO', 'VTO', 'Bereavement']
+        };
+
+        // All possible status options
+        const allStatusOptions = [
+            'On Phone', 'Buffer', 'Backfill', 'UA', 'RTWO', 
+            'Not FTW', 'SL', 'PTO', 'VTO', 'Bereavement'
+        ];
+
+        // Get status category and styling
+        function getStatusInfo(status) {
+            if (statusCategories.canAllocate.includes(status)) {
+                return { category: 'can-allocate', class: 'row-can-allocate' };
+            } else if (statusCategories.uncertain.includes(status)) {
+                return { category: 'uncertain', class: 'row-uncertain' };
+            } else if (statusCategories.cannotAllocate.includes(status)) {
+                return { category: 'cannot-allocate', class: 'row-cannot-allocate' };
+            } else {
+                // Default for unknown statuses
+                return { category: 'uncertain', class: 'row-uncertain' };
+            }
+        }
+
+        // Function to determine team card status
+        function getTeamCardStatus(allocated, required, backups) {
+            if (allocated < required) {
+                return 'team-card-understaffed';
+            } else if (allocated === required && backups === 0) {
+                return 'team-card-complete-no-backups';
+            } else if (allocated === required && backups > 0) {
+                return 'team-card-complete-with-backups';
+            } else if (allocated > required) {
+                return 'team-card-overstaffed';
+            }
+            return '';
+        }
+
+        // Function to get agent styling based on status and allocation
+        function getAgentStyling(agent, isBackup = false) {
+            const isUncertain = statusCategories.uncertain.includes(agent.status);
+            
+            if (isBackup) {
+                return isUncertain ? 'backup-uncertain' : 'backup';
+            } else {
+                return isUncertain ? 'allocated-uncertain' : 'allocated';
+            }
+        }
+
+        // Main Tab Management
+        document.querySelectorAll('.main-tab').forEach(tab => {
+            tab.addEventListener('click', function() {
+                if (this.classList.contains('disabled')) return;
+                
+                // Remove active class from all main tabs and contents
+                document.querySelectorAll('.main-tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.main-content').forEach(c => c.classList.remove('active'));
+                
+                // Add active class to clicked tab and corresponding content
+                this.classList.add('active');
+                const tabName = this.dataset.tab;
+                document.getElementById(`${tabName}-content`).classList.add('active');
+                
+                // Update retrieve tab visibility if switching to history
+                if (tabName === 'history') {
+                    updateRetrieveTabVisibility();
+                }
+            });
+        });
+
+        // History Sub-tab Management
+        document.querySelectorAll('.history-tab').forEach(tab => {
+            tab.addEventListener('click', function() {
+                // Remove active class from all history tabs and contents
+                document.querySelectorAll('.history-tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.history-content').forEach(c => c.classList.remove('active'));
+                
+                // Add active class to clicked tab and corresponding content
+                this.classList.add('active');
+                const tabName = this.dataset.tab;
+                document.getElementById(`${tabName}-content`).classList.add('active');
+                
+                // Update retrieve tab visibility
+                if (tabName === 'retrieve') {
+                    updateRetrieveTabVisibility();
+                }
+            });
+        });
+
+        function updateRetrieveTabVisibility() {
+            const noRosterMessage = document.getElementById('noRosterMessage');
+            const retrieveControls = document.getElementById('retrieveControls');
+            
+            if (rosterWorkbook && agentsData.length > 0) {
+                noRosterMessage.style.display = 'none';
+                retrieveControls.classList.remove('hidden');
+            } else {
+                noRosterMessage.style.display = 'block';
+                retrieveControls.classList.add('hidden');
+            }
+        }
+
+        // Enable/disable tabs based on application state
+        function updateTabStates() {
+            const allocationTab = document.getElementById('allocationTab');
+            const historyTab = document.getElementById('historyTab');
+            
+            if (agentsData.length > 0) {
+                allocationTab.classList.remove('disabled');
+                historyTab.classList.remove('disabled');
+                allocationTab.style.opacity = '1';
+                historyTab.style.opacity = '1';
+                allocationTab.style.cursor = 'pointer';
+                historyTab.style.cursor = 'pointer';
+            } else {
+                allocationTab.classList.add('disabled');
+                historyTab.classList.add('disabled');
+                allocationTab.style.opacity = '0.5';
+                historyTab.style.opacity = '0.5';
+                allocationTab.style.cursor = 'not-allowed';
+                historyTab.style.cursor = 'not-allowed';
+            }
+        }
+
+        // Parse skills from a string "Skill1, Skill2" into an array
+        function parseSkills(skillsString) {
+            if (!skillsString) return [];
+            return skillsString.replace(/"/g, '').split(',').map(s => s.trim()).filter(s => s);
+        }
+
+        // Handle status change
+        function handleStatusChange(agentName, newStatus) {
+            const agent = agentsData.find(a => a.name === agentName);
+            if (agent) {
+                agent.status = newStatus;
+                
+                // If the agent was allocated but the new status means they can't be allocated,
+                // remove them from allocations
+                if (statusCategories.cannotAllocate.includes(newStatus) && agent.allocated) {
+                    updateAgentAllocation(agentName, null, null);
+                }
+                
+                // Refresh displays
+                displayResults();
+                displayAgentList();
+            }
+        }
+        window.handleStatusChange = handleStatusChange;
+
+        // 1. Load Agent Roster from Excel
+        document.getElementById('uploadBtn').addEventListener('click', function() {
+            const fileInput = document.getElementById('rosterFile');
+            const file = fileInput.files[0];
+            const statusEl = document.getElementById('uploadStatus');
+
+            if (!file) {
+                statusEl.textContent = 'Please select an Excel file.';
+                statusEl.className = 'text-sm text-red-600';
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const data = new Uint8Array(e.target.result);
+                    rosterWorkbook = XLSX.read(data, { type: 'array' }); // Store the workbook
+                    
+                    // Look for "Agent Roster" sheet first, then fallback to first sheet
+                    let sheetName = rosterWorkbook.SheetNames.find(name => name.toLowerCase().includes('roster')) || rosterWorkbook.SheetNames[0];
+                    const worksheet = rosterWorkbook.Sheets[sheetName];
+                    const parsedData = XLSX.utils.sheet_to_json(worksheet);
+
+                    agentsData = parsedData.map(row => ({
+                        name: row.Name?.trim() || '',
+                        role: row.Role?.trim() || '',
+                        skills: parseSkills(row.Skills?.toString().trim() || ''),
+                        homeTeam: row['Home Team']?.trim() || '',
+                        status: row.Status?.trim() || ''
+                    })).filter(agent => agent.name && agent.homeTeam);
+
+                    // Load any existing staffing sheets from the roster file
+                    const staffingSheets = rosterWorkbook.SheetNames.filter(name => name.startsWith('Staffing'));
+                    staffingSheets.forEach(sheetName => {
+                        const worksheet = rosterWorkbook.Sheets[sheetName];
+                        const sheetData = XLSX.utils.sheet_to_json(worksheet);
+                        savedStaffingSheets.set(sheetName, sheetData);
+                    });
+
+                    statusEl.textContent = `✓ ${agentsData.length} agents loaded successfully from '${sheetName}'.`;
+                    if (staffingSheets.length > 0) {
+                        statusEl.textContent += ` Found ${staffingSheets.length} saved staffing sheet(s).`;
+                    }
+                    statusEl.className = 'text-sm text-green-600';
+                    
+                    // Set default forecast date to today
+                    const forecastDateInput = document.getElementById('forecastDate');
+                    if (forecastDateInput) {
+                        const today = new Date();
+                        forecastDateInput.value = today.toISOString().split('T')[0];
+                    }
+
+                    displayAgentList();
+                    updateRetrieveTabVisibility(); // Update retrieve tab visibility
+                    updateTabStates(); // Enable other tabs
+                } catch (error) {
+                    statusEl.textContent = 'Error parsing Excel file. Ensure format is correct.';
+                    statusEl.className = 'text-sm text-red-600';
+                    console.error('XLSX parsing error:', error);
+                }
+            };
+            reader.onerror = function() {
+                statusEl.textContent = 'Error reading file.';
+                statusEl.className = 'text-sm text-red-600';
+            };
+            reader.readAsArrayBuffer(file);
+        });
+
+        // 2. Save and Download Current Allocation (FIXED: Creates multiple staffing sheets)
+        function saveAndDownloadAllocation() {
+            if (agentsData.length === 0) {
+                alert("No agent data loaded.");
+                return;
+            }
+
+            const forecastDateValue = document.getElementById('forecastDate').value;
+            if (!forecastDateValue) {
+                alert("Please select a forecast date before downloading.");
+                return;
+            }
+            const dateStr = forecastDateValue;
+            const selectedDay = document.getElementById('daySelect').value;
+            const currentRequirements = teamRequirements[selectedDay];
+
+            // Create data for the "Agent Roster" sheet (current roster from uploaded file)
+            const rosterData = agentsData.map(agent => ({
+                'Name': agent.name,
+                'Role': agent.role,
+                'Skills': agent.skills.join(', '),
+                'Home Team': agent.homeTeam,
+                'Status': agent.status,
+                'Final Allocation': agent.allocatedTo || 'Not Allocated'
+            }));
+
+            // Create data for the current staffing allocation with requirements metadata
+            let allocationData = [];
+            
+            // Add requirements metadata rows first
+            Object.keys(currentRequirements).forEach(team => {
+                allocationData.push({
+                    'Name': `REQUIREMENT_${team}`,
+                    'Role': 'METADATA',
+                    'Skills': currentRequirements[team].toString(),
+                    'Home Team': selectedDay,
+                    'Status': 'REQUIREMENT',
+                    'Allocated Team': team,
+                    'Allocation Type': 'Requirement'
+                });
+            });
+
+            // Add actual agent allocations
+            Object.keys(currentAllocations).forEach(team => {
+                currentAllocations[team].allocated.forEach(agent => {
+                    allocationData.push({
+                        'Name': agent.name, 'Role': agent.role, 'Skills': agent.skills.join(', '),
+                        'Home Team': agent.homeTeam, 'Status': agent.status,
+                        'Allocated Team': team, 'Allocation Type': 'Main'
+                    });
+                });
+                currentAllocations[team].backups.forEach(agent => {
+                    allocationData.push({
+                        'Name': agent.name, 'Role': agent.role, 'Skills': agent.skills.join(', '),
+                        'Home Team': agent.homeTeam, 'Status': agent.status,
+                        'Allocated Team': team, 'Allocation Type': 'Backup'
+                    });
+                });
+            });
+
+            // Create workbook with roster sheet
+            const workbook = XLSX.utils.book_new();
+            const rosterSheet = XLSX.utils.json_to_sheet(rosterData);
+            XLSX.utils.book_append_sheet(workbook, rosterSheet, "Agent Roster");
+
+            // Add current staffing sheet
+            const allocationSheet = XLSX.utils.json_to_sheet(allocationData);
+            const allocationSheetName = `Staffing ${dateStr}`;
+            XLSX.utils.book_append_sheet(workbook, allocationSheet, allocationSheetName);
+
+            // Add any previously saved staffing sheets to maintain history
+            savedStaffingSheets.forEach((sheetData, sheetName) => {
+                if (sheetName !== allocationSheetName) { // Don't duplicate current sheet
+                    const historicalSheet = XLSX.utils.json_to_sheet(sheetData);
+                    XLSX.utils.book_append_sheet(workbook, historicalSheet, sheetName);
+                }
+            });
+
+            // Store current allocation in memory for future saves
+            savedStaffingSheets.set(allocationSheetName, allocationData);
+
+            // Download the file
+            XLSX.writeFile(workbook, `AgentAllocation_${dateStr}.xlsx`);
+        }
+
+        // 3. Find "Staffing" sheets in the roster file (FIXED: Uses uploaded roster file)
+        document.getElementById('loadSheetsBtn').addEventListener('click', () => {
+            const statusEl = document.getElementById('retrieveStatus');
+
+            if (!rosterWorkbook) {
+                statusEl.textContent = 'Please upload a roster file first.';
+                statusEl.className = 'text-sm text-red-600';
+                return;
+            }
+
+            try {
+                const sheetSelect = document.getElementById('sheetSelect');
+                sheetSelect.innerHTML = '<option value="">-- Select a staffing sheet --</option>';
+                
+                const staffingSheets = rosterWorkbook.SheetNames.filter(name => name.startsWith('Staffing'));
+
+                if(staffingSheets.length === 0) {
+                    statusEl.textContent = 'No "Staffing" sheets found in the roster file. Save an allocation first to create history.';
+                    statusEl.className = 'text-sm text-amber-600';
+                    document.getElementById('loadAllocationBtn').disabled = true;
+                    return;
+                }
+
+                // Load and preserve all staffing sheets from the roster file
+                staffingSheets.forEach(sheetName => {
+                    const worksheet = rosterWorkbook.Sheets[sheetName];
+                    const sheetData = XLSX.utils.sheet_to_json(worksheet);
+                    savedStaffingSheets.set(sheetName, sheetData);
+                });
+
+                // Sort sheets by date (newest first)
+                staffingSheets.sort((a, b) => {
+                    const dateA = a.match(/\d{4}-\d{2}-\d{2}/);
+                    const dateB = b.match(/\d{4}-\d{2}-\d{2}/);
+                    if (dateA && dateB) {
+                        return new Date(dateB[0]) - new Date(dateA[0]);
+                    }
+                    return b.localeCompare(a);
+                });
+
+                staffingSheets.forEach(name => {
+                    const option = document.createElement('option');
+                    option.value = name;
+                    option.textContent = name;
+                    sheetSelect.appendChild(option);
+                });
+                
+                document.getElementById('loadAllocationBtn').disabled = true;
+                statusEl.textContent = `Found ${staffingSheets.length} staffing sheet(s) in the roster file.`;
+                statusEl.className = 'text-sm text-green-600';
+            } catch (error) {
+                statusEl.textContent = 'Could not read staffing sheets from the roster file.';
+                statusEl.className = 'text-sm text-red-600';
+                console.error("Error reading staffing sheets:", error);
+            }
+        });
+
+        // Enable the "Load Allocation" button when a sheet is selected
+        document.getElementById('sheetSelect').addEventListener('change', (e) => {
+            document.getElementById('loadAllocationBtn').disabled = !e.target.value;
+        });
+
+        // 4. Load the selected allocation from the sheet (FIXED: Uses roster file and preserves requirements)
+        document.getElementById('loadAllocationBtn').addEventListener('click', () => {
+            const selectedSheet = document.getElementById('sheetSelect').value;
+            const statusEl = document.getElementById('retrieveStatus');
+
+            if (!selectedSheet) return;
+            if (agentsData.length === 0) {
+                alert("Please load the main agent roster first before loading a saved allocation.");
+                return;
+            }
+
+            // Get the allocation data from memory or from roster workbook
+            let loadedAllocation;
+            if (savedStaffingSheets.has(selectedSheet)) {
+                loadedAllocation = savedStaffingSheets.get(selectedSheet);
+            } else if (rosterWorkbook && rosterWorkbook.Sheets[selectedSheet]) {
+                const worksheet = rosterWorkbook.Sheets[selectedSheet];
+                loadedAllocation = XLSX.utils.sheet_to_json(worksheet);
+                // Store it for future use
+                savedStaffingSheets.set(selectedSheet, loadedAllocation);
+            } else {
+                statusEl.textContent = 'Could not find the selected sheet.';
+                statusEl.className = 'text-sm text-red-600';
+                return;
+            }
+
+            // Extract requirements from metadata rows (if they exist)
+            let historicalRequirements = {};
+            let historicalDay = '';
+            const requirementRows = loadedAllocation.filter(row => row['Allocation Type'] === 'Requirement');
+            
+            if (requirementRows.length > 0) {
+                // Parse historical requirements from metadata
+                requirementRows.forEach(row => {
+                    const team = row['Allocated Team'];
+                    const requirement = parseInt(row['Skills']);
+                    historicalRequirements[team] = requirement;
+                    historicalDay = row['Home Team']; // This stores the original day
+                });
+            } else {
+                // Fallback: use current day requirements if no metadata found
+                const currentDay = document.getElementById('daySelect').value;
+                historicalRequirements = teamRequirements[currentDay];
+                historicalDay = currentDay;
+            }
+
+            // Reset current agent states
+            agentsData.forEach(agent => {
+                agent.allocated = false;
+                agent.allocatedTo = null;
+            });
+            
+            // Reset the main currentAllocations object
+            Object.keys(teamRequirements.monday).forEach(team => {
+                currentAllocations[team] = { allocated: [], backups: [] };
+            });
+
+            // Apply loaded allocation data to the master agent list (skip metadata rows)
+            const actualAllocations = loadedAllocation.filter(row => 
+                row['Allocation Type'] !== 'Requirement' && row.Name && !row.Name.startsWith('REQUIREMENT_')
+            );
+            
+            actualAllocations.forEach(record => {
+                const agent = agentsData.find(a => a.name === record['Name']);
+                if (agent) {
+                    agent.allocated = true;
+                    const team = record['Allocated Team'];
+                    const type = record['Allocation Type']; // 'Main' or 'Backup'
+
+                    if (type === 'Main') {
+                        agent.allocatedTo = `Team ${team}`;
+                        currentAllocations[team]?.allocated.push(agent);
+                    } else if (type === 'Backup') {
+                        agent.allocatedTo = `Team ${team} (Backup)`;
+                        currentAllocations[team]?.backups.push(agent);
+                    }
+                }
+            });
+
+            // Store historical requirements for display
+            window.currentHistoricalRequirements = historicalRequirements;
+            window.isLoadingHistorical = true;
+
+            displayResults();
+            displayAgentList();
+            document.getElementById('saveDownloadBtn').disabled = false;
+            
+            let statusMessage = `Successfully loaded allocation from '${selectedSheet}'.`;
+            if (historicalDay) {
+                statusMessage += ` (Original day: ${historicalDay})`;
+            }
+            statusEl.textContent = statusMessage;
+            statusEl.className = 'text-sm text-green-600';
+        });
+
+        // --- Other Event Listeners ---
+        document.getElementById('allocateBtn').addEventListener('click', allocateAgents);
+        document.getElementById('saveDownloadBtn').addEventListener('click', saveAndDownloadAllocation);
+
+        document.getElementById('daySelect').addEventListener('change', function() {
+            // Clear historical flags when changing day
+            window.isLoadingHistorical = false;
+            window.currentHistoricalRequirements = null;
+            
+            agentsData.forEach(agent => {
+                agent.allocated = false;
+                agent.allocatedTo = null;
+            });
+            document.getElementById('allocationResults').style.display = 'none';
+            document.getElementById('saveDownloadBtn').disabled = true;
+            if (agentsData.length > 0) {
+                displayAgentList();
+            }
+        });
+
+        // Initialize tab states on page load
+        updateTabStates();
+
+        // --- Core Application Functions (Allocation, Display, Drag-and-Drop) ---
+        
+        let draggedAgent = null;
+
+        function allocateAgents() {
+            const selectedDay = document.getElementById('daySelect').value;
+            const requirements = teamRequirements[selectedDay];
+            
+            agentsData.forEach(agent => {
+                agent.allocated = false;
+                agent.allocatedTo = null;
+            });
+
+            currentAllocations = { A: { allocated: [], backups: [] }, B: { allocated: [], backups: [] }, C: { allocated: [], backups: [] }, E: { allocated: [], backups: [] }, F: { allocated: [], backups: [] }, G: { allocated: [], backups: [] } };
+            const availableAgents = agentsData.filter(agent => !statusCategories.cannotAllocate.includes(agent.status));
+            const regularAgents = availableAgents.filter(agent => agent.role !== 'Lead Agent');
+            const leadAgents = availableAgents.filter(agent => agent.role === 'Lead Agent');
+            const statusPriority = { 'On Phone': 1, 'Buffer': 2, 'Backfill': 3, 'UA': 4, 'RTWO': 5 };
+            regularAgents.sort((a, b) => (statusPriority[a.status] || 999) - (statusPriority[b.status] || 999));
+
+            Object.keys(requirements).forEach(team => {
+                const teamLetter = team;
+                const required = requirements[team];
+                const teamAgents = regularAgents.filter(agent => agent.skills.includes(teamLetter) && !agent.allocated)
+                    .sort((a, b) => {
+                        const aIsHomeTeam = a.homeTeam === `Team ${teamLetter}`;
+                        const bIsHomeTeam = b.homeTeam === `Team ${teamLetter}`;
+                        const aHasSingleSkill = a.skills.length === 1 && a.skills[0] === teamLetter;
+                        const bHasSingleSkill = b.skills.length === 1 && b.skills[0] === teamLetter;
+                        if (aIsHomeTeam && aHasSingleSkill && !(bIsHomeTeam && bHasSingleSkill)) return -1;
+                        if (bIsHomeTeam && bHasSingleSkill && !(aIsHomeTeam && aHasSingleSkill)) return 1;
+                        if (aIsHomeTeam && !bIsHomeTeam) return -1;
+                        if (bIsHomeTeam && !aIsHomeTeam) return 1;
+                        if (aHasSingleSkill && !bHasSingleSkill) return -1;
+                        if (bHasSingleSkill && !aHasSingleSkill) return 1;
+                        return 0;
+                    });
+                for (let i = 0; i < required && i < teamAgents.length; i++) {
+                    teamAgents[i].allocated = true;
+                    teamAgents[i].allocatedTo = `Team ${teamLetter}`;
+                    currentAllocations[teamLetter].allocated.push(teamAgents[i]);
+                }
+                let remainingAgents = teamAgents.slice(required).filter(agent => !agent.allocated);
+                const backupsNeeded = 2;
+                if (remainingAgents.length < backupsNeeded) {
+                    const additionalAgents = regularAgents.filter(agent => agent.skills.includes(teamLetter) && !agent.allocated && !remainingAgents.includes(agent));
+                    remainingAgents.push(...additionalAgents);
+                }
+                for (let i = 0; i < Math.min(backupsNeeded, remainingAgents.length); i++) {
+                    remainingAgents[i].allocated = true;
+                    remainingAgents[i].allocatedTo = `Team ${teamLetter} (Backup)`;
+                    currentAllocations[teamLetter].backups.push(remainingAgents[i]);
+                }
+            });
+            Object.keys(requirements).forEach(team => {
+                const teamLetter = team;
+                const required = requirements[team];
+                const currentAllocated = currentAllocations[teamLetter].allocated.length;
+                if (currentAllocated < required) {
+                    const availableLeads = leadAgents.filter(agent => agent.skills.includes(teamLetter) && !agent.allocated);
+                    const needed = required - currentAllocated;
+                    for (let i = 0; i < Math.min(needed, availableLeads.length); i++) {
+                        availableLeads[i].allocated = true;
+                        availableLeads[i].allocatedTo = `Team ${teamLetter}`;
+                        currentAllocations[teamLetter].allocated.push(availableLeads[i]);
+                    }
+                }
+            });
+            Object.keys(requirements).forEach(team => {
+                const teamLetter = team;
+                const currentBackups = currentAllocations[teamLetter].backups.length;
+                if (currentBackups < 2) {
+                    const availableLeadsForBackup = leadAgents.filter(agent => agent.skills.includes(teamLetter) && !agent.allocated);
+                    const backupsNeeded = 2 - currentBackups;
+                    for (let i = 0; i < Math.min(backupsNeeded, availableLeadsForBackup.length); i++) {
+                        availableLeadsForBackup[i].allocated = true;
+                        availableLeadsForBackup[i].allocatedTo = `Team ${teamLetter} (Backup)`;
+                        currentAllocations[teamLetter].backups.push(availableLeadsForBackup[i]);
+                    }
+                }
+            });
+            displayResults();
+            displayAgentList();
+            document.getElementById('saveDownloadBtn').disabled = false;
+        }
+
+        function displayResults() {
+            const teamAllocationsDiv = document.getElementById('teamAllocations');
+            teamAllocationsDiv.innerHTML = '';
+            
+            // Use historical requirements if available, otherwise use current day requirements
+            let requirements;
+            if (window.isLoadingHistorical && window.currentHistoricalRequirements) {
+                requirements = window.currentHistoricalRequirements;
+            } else {
+                const selectedDay = document.getElementById('daySelect').value;
+                requirements = teamRequirements[selectedDay];
+                // Clear historical flags when not loading historical data
+                window.isLoadingHistorical = false;
+                window.currentHistoricalRequirements = null;
+            }
+            
+            Object.keys(currentAllocations).forEach(team => {
+                const allocation = currentAllocations[team];
+                const required = requirements[team] || 0; // Fallback to 0 if team not found
+                const allocated = allocation.allocated.length;
+                const backups = allocation.backups.length;
+                
+                // Determine team card status
+                const cardStatusClass = getTeamCardStatus(allocated, required, backups);
+                
+                const teamDiv = document.createElement('div');
+                teamDiv.className = `bg-white rounded-lg shadow-lg overflow-hidden `;
+                teamDiv.innerHTML = `
+                    <div class="${cardStatusClass} text-white p-3">
+                        <h3 class="text-lg font-bold">Team ${team}</h3>
+                        <p class="text-xs">Req: ${required} | Alloc: ${allocated}</p>
+                    </div>
+                    <div class="p-3">
+                        <div class="mb-3">
+                            <h4 class="font-semibold text-gray-700 mb-2 text-sm">Allocated (${allocated})</h4>
+                            <div class="drop-zone space-y-1" data-team="${team}" data-type="allocated">
+                                ${allocation.allocated.map(agent => {
+                                    const agentStyling = getAgentStyling(agent, false);
+                                    return `
+                                        <div class="text-xs p-2 rounded ${agentStyling} agent-item draggable" draggable="true" data-agent-name="${agent.name}" data-agent-skills="${agent.skills.join(',')}" data-current-team="${team}" data-current-type="allocated">
+                                            <strong>${agent.name}</strong>
+                                            <span class="text-gray-600">(${agent.role} | ${agent.status})</span>
+                                        </div>
+                                    `;
+                                }).join('')}
+                            </div>
+                        </div>
+                        <div>
+                            <h4 class="font-semibold text-gray-700 mb-2 text-sm">Backups (${backups})</h4>
+                            <div class="drop-zone space-y-1" data-team="${team}" data-type="backup">
+                                ${allocation.backups.map(agent => {
+                                    const agentStyling = getAgentStyling(agent, true);
+                                    return `
+                                        <div class="text-xs p-2 rounded ${agentStyling} agent-item draggable" draggable="true" data-agent-name="${agent.name}" data-agent-skills="${agent.skills.join(',')}" data-current-team="${team}" data-current-type="backup">
+                                            <strong>${agent.name}</strong>
+                                            <span class="text-gray-600">(${agent.role} | ${agent.status})</span>
+                                        </div>
+                                    `;
+                                }).join('')}
+                            </div>
+                        </div>
+                    </div>`;
+                teamAllocationsDiv.appendChild(teamDiv);
+            });
+            addDragAndDropListeners();
+            document.getElementById('allocationResults').style.display = 'block';
+        }
+
+        function displayAgentList() {
+            const agentTableBody = document.getElementById('agentTableBody');
+            agentTableBody.innerHTML = '';
+            agentsData.forEach(agent => {
+                const row = document.createElement('tr');
+                const isAllocated = agent.allocated;
+                const isBackup = agent.allocatedTo && agent.allocatedTo.includes('Backup');
+                let rowClass = isAllocated ? (isBackup ? 'backup' : 'allocated') : 'not-allocated';
+                
+                // Get status styling for the entire row
+                const statusInfo = getStatusInfo(agent.status);
+                
+                row.className = `border-b ${rowClass} ${statusInfo.class}`;
+                row.innerHTML = `
+                    <td class="py-2 px-3"><strong>${agent.name}</strong></td>
+                    <td class="py-2 px-3">${agent.role}</td>
+                    <td class="py-2 px-3">${agent.skills.join(', ')}</td>
+                    <td class="py-2 px-3">${agent.homeTeam}</td>
+                    <td class="py-2 px-3">
+                        <select class="status-select" onchange="handleStatusChange('${agent.name}', this.value)">
+                            ${allStatusOptions.map(status => `
+                                <option value="${status}" ${agent.status === status ? 'selected' : ''}>${status}</option>
+                            `).join('')}
+                        </select>
+                    </td>
+                    <td class="py-2 px-3">
+                        ${isAllocated ? `<span class="font-semibold">${agent.allocatedTo}</span>` : ''}
+                        <select class="ml-2 px-2 py-1 text-xs border rounded" onchange="handleAllocationChange('${agent.name}', this.value)" ${statusCategories.cannotAllocate.includes(agent.status) ? 'disabled' : ''}>
+                            <option value="">Select Team...</option>
+                            ${agent.skills.map(skill => `
+                                <option value="${skill}-allocated" ${agent.allocatedTo === `Team ${skill}` ? 'selected' : ''}>Team ${skill} (Main)</option>
+                                <option value="${skill}-backup" ${agent.allocatedTo === `Team ${skill} (Backup)` ? 'selected' : ''}>Team ${skill} (Backup)</option>
+                            `).join('')}
+                            <option value="unassign" ${!isAllocated ? 'selected' : ''}>Unassign</option>
+                        </select>
+                    </td>`;
+                agentTableBody.appendChild(row);
+            });
+            document.getElementById('agentStatusList').style.display = 'block';
+        }
+
+        function handleAllocationChange(agentName, value) {
+            const [newTeam, newType] = value.split('-');
+            if (value === 'unassign') {
+                updateAgentAllocation(agentName, null, null);
+            } else {
+                updateAgentAllocation(agentName, newTeam, newType);
+            }
+        }
+        window.handleAllocationChange = handleAllocationChange;
+
+        function updateAgentAllocation(agentName, newTeam, newType) {
+            const agentToMove = agentsData.find(a => a.name === agentName);
+            if (!agentToMove) return;
+
+            // Remove agent from their old team if they had one
+            if (agentToMove.allocatedTo) {
+                const oldTeamMatch = agentToMove.allocatedTo.match(/Team (\w+)/);
+                if (oldTeamMatch) {
+                    const oldTeam = oldTeamMatch[1];
+                    if (currentAllocations[oldTeam]) {
+                        currentAllocations[oldTeam].allocated = currentAllocations[oldTeam].allocated.filter(a => a.name !== agentName);
+                        currentAllocations[oldTeam].backups = currentAllocations[oldTeam].backups.filter(a => a.name !== agentName);
+                    }
+                }
+            }
+
+            // Unassign logic
+            if (!newTeam) {
+                agentToMove.allocated = false;
+                agentToMove.allocatedTo = null;
+            } else {
+                 // Add agent to the new team
+                if (currentAllocations[newTeam]) {
+                    if (newType === 'allocated') {
+                        currentAllocations[newTeam].allocated.push(agentToMove);
+                        agentToMove.allocatedTo = `Team ${newTeam}`;
+                    } else if (newType === 'backup') {
+                        currentAllocations[newTeam].backups.push(agentToMove);
+                        agentToMove.allocatedTo = `Team ${newTeam} (Backup)`;
+                    }
+                    agentToMove.allocated = true;
+                }
+            }
+            
+            displayResults();
+            displayAgentList();
+        }
+
+        function addDragAndDropListeners() {
+            document.querySelectorAll('.draggable').forEach(item => {
+                item.addEventListener('dragstart', handleDragStart);
+                item.addEventListener('dragend', handleDragEnd);
+            });
+            document.querySelectorAll('.drop-zone').forEach(zone => {
+                zone.addEventListener('dragover', handleDragOver);
+                zone.addEventListener('dragenter', handleDragEnter);
+                zone.addEventListener('dragleave', handleDragLeave);
+                zone.addEventListener('drop', handleDrop);
+            });
+        }
+
+        function handleDragStart(e) {
+            draggedAgent = e.target;
+            e.target.classList.add('dragging');
+            e.dataTransfer.effectAllowed = 'move';
+        }
+
+        function handleDragEnd(e) {
+            e.target.classList.remove('dragging');
+            document.querySelectorAll('.drop-zone').forEach(z => z.classList.remove('drag-over', 'invalid-drop'));
+        }
+
+        function handleDragOver(e) {
+            e.preventDefault();
+            const dropZone = e.target.closest('.drop-zone');
+            if (!dropZone) return;
+
+            const agentSkills = draggedAgent.dataset.agentSkills.split(',');
+            const targetTeam = dropZone.dataset.team;
+
+            if (agentSkills.includes(targetTeam)) {
+                dropZone.classList.remove('invalid-drop');
+                dropZone.classList.add('drag-over');
+            } else {
+                dropZone.classList.remove('drag-over');
+                dropZone.classList.add('invalid-drop');
+            }
+        }
+
+        function handleDragEnter(e) {
+            const dropZone = e.target.closest('.drop-zone');
+            if (dropZone) {
+                const agentSkills = draggedAgent.dataset.agentSkills.split(',');
+                const targetTeam = dropZone.dataset.team;
+                if (agentSkills.includes(targetTeam)) {
+                    dropZone.classList.add('drag-over');
+                } else {
+                    dropZone.classList.add('invalid-drop');
+                }
+            }
+        }
+
+        function handleDragLeave(e) {
+            const dropZone = e.target.closest('.drop-zone');
+            if(dropZone) dropZone.classList.remove('drag-over', 'invalid-drop');
+        }
+
+        function handleDrop(e) {
+            e.preventDefault();
+            const dropZone = e.target.closest('.drop-zone');
+            if (!dropZone) return;
+            
+            dropZone.classList.remove('drag-over', 'invalid-drop');
+            
+            const agentName = draggedAgent.dataset.agentName;
+            const agentSkills = draggedAgent.dataset.agentSkills.split(',');
+            
+            const newTeam = dropZone.dataset.team;
+            const newType = dropZone.dataset.type;
+
+            if (!agentSkills.includes(newTeam)) {
+                alert(`Cannot move ${agentName} to Team ${newTeam}. Agent does not have the required skill.`);
+                return;
+            }
+
+            updateAgentAllocation(agentName, newTeam, newType);
+        }
+
+    </script>
+</body>
+</html>
