@@ -1,0 +1,1295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Forefront Staffing - Firebase</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    
+    <!-- Firebase SDK -->
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
+        import { getFirestore, collection, addDoc, getDocs, doc, updateDoc, deleteDoc, query, orderBy, limit } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
+        
+        // Your Firebase config - REPLACE WITH YOUR ACTUAL CONFIG
+        const firebaseConfig = {
+            apiKey: "your-api-key",
+            authDomain: "your-auth-domain",
+            projectId: "your-project-id",
+            storageBucket: "your-storage-bucket",
+            messagingSenderId: "your-messaging-sender-id",
+            appId: "your-app-id"
+        };
+        
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        
+        // Make Firebase functions available globally
+        window.db = db;
+        window.firestore = { collection, addDoc, getDocs, doc, updateDoc, deleteDoc, query, orderBy, limit };
+    </script>
+    
+    <style>
+        :root {
+            --knack-navy: #2c3e7a;
+            --knack-blue: #4285d6;
+            --knack-light-blue: #5bb3e8;
+            --knack-teal: #48c9d8;
+        }
+        .team-header { background: var(--knack-blue); }
+        .allocated { background-color: #dcfce7; border-left: 4px solid var(--knack-teal); }
+        .allocated-uncertain { background-color: #fef3c7; border-left: 4px solid #f59e0b; }
+        .not-allocated { background-color: #ffffff; border-left: 4px solid #f59e0b; }
+        .backup { background-color: #dbeafe; border-left: 4px solid #60a5fa; }
+        .backup-uncertain { background-color: #fef3c7; border-left: 4px solid #f59e0b; }
+        
+        /* Team card border status indicators */
+        .team-card-understaffed { background: #ef4444; box-shadow: 0 0 12px rgba(239, 68, 68, 0.3); }
+        .team-card-complete-no-backups { background: #eab308; box-shadow: 0 0 12px rgba(234, 179, 8, 0.3); }
+        .team-card-complete-with-backups { background: #22c55e; box-shadow: 0 0 12px rgba(34, 197, 94, 0.3); }
+        .team-card-overstaffed { background: #3b82f6; box-shadow: 0 0 12px rgba(59, 130, 246, 0.3); }
+        
+        /* Row background colors based on status */
+        .row-can-allocate { background-color: #dcfce7; }
+        .row-uncertain { background-color: #fef3c7; }
+        .row-cannot-allocate { background-color: #fecaca; }
+        
+        .draggable { cursor: move; }
+        .dragging { opacity: 0.5; }
+        .drop-zone { min-height: 50px; transition: all 0.3s ease; border-radius: 4px; }
+        .drop-zone.drag-over { background-color: #f3f4f6; border: 2px dashed var(--knack-blue); }
+        .drop-zone.invalid-drop { background-color: #fef2f2; border: 2px dashed #ef4444; }
+        .agent-item { transition: all 0.3s ease; }
+        .agent-item:hover { transform: translateY(-1px); box-shadow: 0 4px 6px -1px rgba(44, 62, 122, 0.2); }
+        .knack-btn { padding: 0.5rem 1.5rem; color: white; border-radius: 0.5rem; transition: all 0.3s ease; border: none; }
+        .knack-btn-primary { background: var(--knack-blue); }
+        .knack-btn-primary:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(44, 62, 122, 0.3); }
+        .knack-btn-secondary { background: linear-gradient(135deg, var(--knack-light-blue), var(--knack-teal)); }
+        .knack-btn-secondary:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(72, 201, 216, 0.3); }
+        .knack-btn-danger { background: #ef4444; }
+        .knack-btn-danger:hover:not(:disabled) { background: #dc2626; }
+        .knack-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .knack-card { background: white; border-radius: 12px; box-shadow: 0 2px 8px rgba(44, 62, 122, 0.1); border-top: 3px solid var(--knack-teal); }
+        .knack-header { background: linear-gradient(135deg, var(--knack-navy) 0%, var(--knack-blue) 50%, var(--knack-light-blue) 100%); color: white; padding: 2rem 0; margin-bottom: 2rem; }
+        
+        .main-tabs { border-bottom: 2px solid #e5e7eb; margin-bottom: 1.5rem; }
+        .main-tab { padding: 1rem 2rem; background: #f9fafb; border: 1px solid #d1d5db; border-bottom: none; margin-right: 0.25rem; cursor: pointer; transition: all 0.3s ease; font-weight: 600; }
+        .main-tab.active { background: white; border-bottom: 3px solid var(--knack-teal); color: var(--knack-navy); }
+        .main-tab:hover:not(.active) { background: #f3f4f6; color: var(--knack-blue); }
+        .main-content { display: none; }
+        .main-content.active { display: block; }
+        
+        .status-select, .agent-form input, .agent-form select {
+            padding: 0.5rem;
+            border: 1px solid #d1d5db;
+            border-radius: 0.375rem;
+            background: white;
+            font-size: 0.875rem;
+        }
+        
+        .agent-form { display: grid; grid-template-columns: 1fr 1fr 2fr 1fr 1fr auto; gap: 1rem; align-items: center; padding: 1rem; border: 1px solid #e5e7eb; border-radius: 0.5rem; margin-bottom: 1rem; }
+        .agent-form.editing { background-color: #fef3c7; }
+        
+        .history-item { padding: 1rem; border: 1px solid #e5e7eb; border-radius: 0.5rem; margin-bottom: 1rem; background: white; }
+        .history-item:hover { box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        
+        .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); }
+        .modal-content { background-color: white; margin: 15% auto; padding: 20px; border-radius: 10px; width: 80%; max-width: 500px; }
+        .close { color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer; }
+        .close:hover { color: black; }
+        
+        .loading { opacity: 0.6; pointer-events: none; }
+        .spinner { border: 2px solid #f3f3f3; border-top: 2px solid var(--knack-blue); border-radius: 50%; width: 20px; height: 20px; animation: spin 1s linear infinite; display: inline-block; margin-right: 10px; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body class="bg-gray-50">
+
+    <div class="knack-header">
+        <div class="max-w-7xl mx-auto px-4">
+            <h1 class="text-4xl font-bold text-center text-white">Forefront SCE Staffing - Firebase</h1>
+            <p class="text-center text-white/80 mt-2">Manage agents and staffing allocations in real-time</p>
+        </div>
+    </div>
+
+    <div class="w-full mx-auto px-4">
+        <div class="w-[70%] mx-auto knack-card p-6 mb-6">
+            <!-- Main Tabs -->
+            <div class="main-tabs">
+                <div class="flex">
+                    <div class="main-tab active" data-tab="agents">Manage Agents</div>
+                    <div class="main-tab" data-tab="allocation">Staffing Allocation</div>
+                    <div class="main-tab" data-tab="history">Staffing History</div>
+                </div>
+            </div>
+
+            <!-- Agents Management Tab -->
+            <div id="agents-content" class="main-content active">
+                <div class="mb-6">
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="text-xl font-bold">Agent Management</h2>
+                        <button id="addAgentBtn" class="knack-btn knack-btn-primary">+ Add New Agent</button>
+                    </div>
+                    
+                    <!-- Add/Edit Agent Form -->
+                    <div id="agentForm" class="agent-form" style="display: none;">
+                        <input type="text" id="agentName" placeholder="Agent Name" required>
+                        <select id="agentRole">
+                            <option value="">Select Role</option>
+                            <option value="Agent">Agent</option>
+                            <option value="Lead Agent">Lead Agent</option>
+                            <option value="Senior Agent">Senior Agent</option>
+                        </select>
+                        <input type="text" id="agentSkills" placeholder="Skills (A, B, C, E, F, G - comma separated)">
+                        <select id="agentHomeTeam">
+                            <option value="">Select Home Team</option>
+                            <option value="Team A">Team A</option>
+                            <option value="Team B">Team B</option>
+                            <option value="Team C">Team C</option>
+                            <option value="Team E">Team E</option>
+                            <option value="Team F">Team F</option>
+                            <option value="Team G">Team G</option>
+                        </select>
+                        <select id="agentStatus">
+                            <option value="Billable">Billable</option>
+                            <option value="Buffer">Buffer</option>
+                            <option value="Backfill">Backfill</option>
+                            <option value="UA">UA</option>
+                            <option value="RTWO">RTWO</option>
+                            <option value="Not FTW">Not FTW</option>
+                            <option value="SL">SL</option>
+                            <option value="PTO">PTO</option>
+                            <option value="VTO">VTO</option>
+                            <option value="Bereavement">Bereavement</option>
+                        </select>
+                        <div class="flex space-x-2">
+                            <button id="saveAgentBtn" class="knack-btn knack-btn-primary">Save</button>
+                            <button id="cancelAgentBtn" class="knack-btn" style="background: #6b7280;">Cancel</button>
+                        </div>
+                    </div>
+
+                    <!-- Bulk Actions -->
+                    <div class="mb-4 p-4 bg-gray-50 rounded-lg">
+                        <div class="flex items-center space-x-4">
+                            <span class="font-semibold">Bulk Actions:</span>
+                            <input type="file" id="bulkUploadFile" accept=".xlsx" class="text-sm">
+                            <button id="bulkUploadBtn" class="knack-btn knack-btn-secondary text-sm px-3 py-1">Import from Excel</button>
+                            <button id="exportAgentsBtn" class="knack-btn knack-btn-secondary text-sm px-3 py-1">Export to Excel</button>
+                        </div>
+                    </div>
+
+                    <!-- Agents List -->
+                    <div id="agentsList" class="space-y-2"></div>
+                </div>
+            </div>
+
+            <!-- Staffing Allocation Tab -->
+            <div id="allocation-content" class="main-content">
+                <div class="flex items-center justify-between mb-6">
+                    <div class="flex items-center space-x-4">
+                        <label class="text-lg font-semibold">Select Day:</label>
+                        <select id="daySelect" class="px-4 py-2 border rounded-lg bg-white">
+                            <option value="monday">Monday</option>
+                            <option value="tuesday">Tuesday</option>
+                            <option value="wednesday">Wednesday</option>
+                            <option value="thursday">Thursday</option>
+                            <option value="friday">Friday</option>
+                        </select>
+                        <button id="allocateBtn" class="knack-btn knack-btn-primary">
+                            Auto-Allocate
+                        </button>
+                    </div>
+                    <div class="flex space-x-2">
+                        <button id="saveAllocationBtn" class="knack-btn knack-btn-secondary">Save Current Allocation</button>
+                        <button id="clearAllocationBtn" class="knack-btn knack-btn-danger">Clear All</button>
+                    </div>
+                </div>
+
+                <!-- Team Staffing Display -->
+                <div id="allocationResults" style="display: none;">
+                    <h2 class="text-2xl font-bold mb-4">Team Staffing</h2>
+                    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3" id="teamAllocations"></div>
+                </div>
+
+                <!-- Agent Status List -->
+                <div id="agentStatusList" style="display: none;">
+                    <h2 class="text-2xl font-bold mb-4 mt-8">Agent Status</h2>
+                    <div class="bg-white rounded-lg shadow-lg p-6 overflow-x-auto">
+                        <table class="w-full text-sm">
+                            <thead>
+                                <tr class="border-b-2 border-gray-200">
+                                    <th class="text-left py-2 px-3">Name</th>
+                                    <th class="text-left py-2 px-3">Role</th>
+                                    <th class="text-left py-2 px-3">Skills</th>
+                                    <th class="text-left py-2 px-3">Home Team</th>
+                                    <th class="text-left py-2 px-3">Status</th>
+                                    <th class="text-left py-2 px-3">Allocation</th>
+                                </tr>
+                            </thead>
+                            <tbody id="agentTableBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Staffing History Tab -->
+            <div id="history-content" class="main-content">
+                <div class="flex justify-between items-center mb-6">
+                    <h2 class="text-xl font-bold">Staffing History</h2>
+                    <button id="refreshHistoryBtn" class="knack-btn knack-btn-primary">Refresh</button>
+                </div>
+                <div id="historyList" class="space-y-4"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Save Allocation Modal -->
+    <div id="saveModal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h2 class="text-xl font-bold mb-4">Save Staffing Allocation</h2>
+            <div class="mb-4">
+                <label class="block text-sm font-medium mb-2">Allocation Name:</label>
+                <input type="text" id="allocationName" class="w-full px-3 py-2 border rounded" placeholder="e.g., Monday Staffing - Week 1">
+            </div>
+            <div class="mb-4">
+                <label class="block text-sm font-medium mb-2">Date:</label>
+                <input type="date" id="allocationDate" class="w-full px-3 py-2 border rounded">
+            </div>
+            <div class="mb-4">
+                <label class="block text-sm font-medium mb-2">Notes (optional):</label>
+                <textarea id="allocationNotes" class="w-full px-3 py-2 border rounded" rows="3" placeholder="Any additional notes..."></textarea>
+            </div>
+            <div class="flex justify-end space-x-2">
+                <button id="cancelSaveBtn" class="px-4 py-2 bg-gray-300 rounded">Cancel</button>
+                <button id="confirmSaveBtn" class="knack-btn knack-btn-primary">Save Allocation</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global State
+        let agentsData = [];
+        let currentAllocations = {};
+        let editingAgentId = null;
+
+        // Team Requirements
+        const teamRequirements = {
+            monday: { A: 7, B: 5, C: 15, E: 11, F: 8, G: 8 },
+            tuesday: { A: 2, B: 5, C: 13, E: 11, F: 8, G: 6 },
+            wednesday: { A: 2, B: 5, C: 13, E: 11, F: 8, G: 6 },
+            thursday: { A: 2, B: 5, C: 13, E: 11, F: 8, G: 6 },
+            friday: { A: 2, B: 5, C: 13, E: 11, F: 8, G: 6 }
+        };
+
+        // Status categorization
+        const statusCategories = {
+            canAllocate: ['Billable', 'Buffer', 'Backfill'],
+            uncertain: ['UA', 'RTWO'],
+            cannotAllocate: ['Not FTW', 'SL', 'PTO', 'VTO', 'Bereavement']
+        };
+
+        const allStatusOptions = [
+            'Billable', 'Buffer', 'Backfill', 'UA', 'RTWO', 
+            'Not FTW', 'SL', 'PTO', 'VTO', 'Bereavement'
+        ];
+
+        // Wait for Firebase to load
+        window.addEventListener('load', async function() {
+            // Add a small delay to ensure Firebase is fully loaded
+            setTimeout(async () => {
+                if (window.db && window.firestore) {
+                    await loadAgents();
+                    initializeEventListeners();
+                } else {
+                    console.error('Firebase not loaded properly');
+                    document.body.innerHTML = '<div class="text-center p-8"><h1 class="text-2xl text-red-600">Firebase Configuration Required</h1><p class="mt-4">Please update the Firebase configuration in the script section with your actual Firebase project credentials.</p></div>';
+                }
+            }, 1000);
+        });
+
+        // Firebase Operations
+        async function loadAgents() {
+            try {
+                showLoading(true);
+                const querySnapshot = await window.firestore.getDocs(window.firestore.collection(window.db, 'agents'));
+                agentsData = [];
+                querySnapshot.forEach((doc) => {
+                    agentsData.push({ id: doc.id, ...doc.data() });
+                });
+                displayAgentsList();
+                showLoading(false);
+            } catch (error) {
+                console.error('Error loading agents:', error);
+                showNotification('Error loading agents: ' + error.message, 'error');
+                showLoading(false);
+            }
+        }
+
+        async function saveAgent(agentData) {
+            try {
+                if (editingAgentId) {
+                    await window.firestore.updateDoc(window.firestore.doc(window.db, 'agents', editingAgentId), agentData);
+                    showNotification('Agent updated successfully!', 'success');
+                } else {
+                    await window.firestore.addDoc(window.firestore.collection(window.db, 'agents'), agentData);
+                    showNotification('Agent added successfully!', 'success');
+                }
+                await loadAgents();
+            } catch (error) {
+                console.error('Error saving agent:', error);
+                showNotification('Error saving agent: ' + error.message, 'error');
+            }
+        }
+
+        async function deleteAgent(id) {
+            try {
+                await window.firestore.deleteDoc(window.firestore.doc(window.db, 'agents', id));
+                showNotification('Agent deleted successfully!', 'success');
+                await loadAgents();
+            } catch (error) {
+                console.error('Error deleting agent:', error);
+                showNotification('Error deleting agent: ' + error.message, 'error');
+            }
+        }
+
+        async function saveAllocation(allocationData) {
+            try {
+                await window.firestore.addDoc(window.firestore.collection(window.db, 'allocations'), allocationData);
+                showNotification('Allocation saved successfully!', 'success');
+            } catch (error) {
+                console.error('Error saving allocation:', error);
+                showNotification('Error saving allocation: ' + error.message, 'error');
+            }
+        }
+
+        async function loadHistory() {
+            try {
+                showLoading(true);
+                const q = window.firestore.query(
+                    window.firestore.collection(window.db, 'allocations'),
+                    window.firestore.orderBy('createdAt', 'desc'),
+                    window.firestore.limit(50)
+                );
+                const querySnapshot = await window.firestore.getDocs(q);
+                const historyData = [];
+                querySnapshot.forEach((doc) => {
+                    historyData.push({ id: doc.id, ...doc.data() });
+                });
+                displayHistory(historyData);
+                showLoading(false);
+            } catch (error) {
+                console.error('Error loading history:', error);
+                showNotification('Error loading history: ' + error.message, 'error');
+                showLoading(false);
+            }
+        }
+
+        async function deleteAllocation(id) {
+            try {
+                await window.firestore.deleteDoc(window.firestore.doc(window.db, 'allocations', id));
+                showNotification('Allocation deleted successfully!', 'success');
+                await loadHistory();
+            } catch (error) {
+                console.error('Error deleting allocation:', error);
+                showNotification('Error deleting allocation: ' + error.message, 'error');
+            }
+        }
+
+        // UI Functions
+        function showLoading(show) {
+            if (show) {
+                document.body.classList.add('loading');
+            } else {
+                document.body.classList.remove('loading');
+            }
+        }
+
+        function showNotification(message, type = 'info') {
+            const notification = document.createElement('div');
+            notification.className = `fixed top-4 right-4 p-4 rounded-lg shadow-lg z-50 ${
+                type === 'success' ? 'bg-green-500 text-white' :
+                type === 'error' ? 'bg-red-500 text-white' :
+                'bg-blue-500 text-white'
+            }`;
+            notification.textContent = message;
+            document.body.appendChild(notification);
+            setTimeout(() => {
+                notification.remove();
+            }, 3000);
+        }
+
+        function displayAgentsList() {
+            const agentsList = document.getElementById('agentsList');
+            agentsList.innerHTML = '';
+            
+            if (agentsData.length === 0) {
+                agentsList.innerHTML = '<div class="text-center py-8 text-gray-500">No agents found. Add your first agent above.</div>';
+                return;
+            }
+
+            agentsData.forEach(agent => {
+                const agentDiv = document.createElement('div');
+                agentDiv.className = 'agent-form';
+                agentDiv.innerHTML = `
+                    <div><strong>${agent.name}</strong></div>
+                    <div>${agent.role}</div>
+                    <div>${(agent.skills || []).join(', ')}</div>
+                    <div>${agent.homeTeam}</div>
+                    <div><span class="px-2 py-1 rounded text-xs ${getStatusClass(agent.status)}">${agent.status}</span></div>
+                    <div class="flex space-x-2">
+                        <button onclick="editAgent('${agent.id}')" class="text-blue-600 hover:text-blue-800 text-sm">Edit</button>
+                        <button onclick="deleteAgentConfirm('${agent.id}')" class="text-red-600 hover:text-red-800 text-sm">Delete</button>
+                    </div>
+                `;
+                agentsList.appendChild(agentDiv);
+            });
+        }
+
+        function getStatusClass(status) {
+            if (statusCategories.canAllocate.includes(status)) return 'bg-green-100 text-green-800';
+            if (statusCategories.uncertain.includes(status)) return 'bg-yellow-100 text-yellow-800';
+            if (statusCategories.cannotAllocate.includes(status)) return 'bg-red-100 text-red-800';
+            return 'bg-gray-100 text-gray-800';
+        }
+
+        function displayHistory(historyData) {
+            const historyList = document.getElementById('historyList');
+            historyList.innerHTML = '';
+
+            if (historyData.length === 0) {
+                historyList.innerHTML = '<div class="text-center py-8 text-gray-500">No allocation history found.</div>';
+                return;
+            }
+
+            historyData.forEach(allocation => {
+                const historyDiv = document.createElement('div');
+                historyDiv.className = 'history-item';
+                historyDiv.innerHTML = `
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <h3 class="font-bold text-lg">${allocation.name}</h3>
+                            <p class="text-sm text-gray-600">Date: ${allocation.date}</p>
+                            <p class="text-sm text-gray-600">Day: ${allocation.day}</p>
+                            <p class="text-sm text-gray-600">Created: ${new Date(allocation.createdAt.seconds * 1000).toLocaleString()}</p>
+                            ${allocation.notes ? `<p class="text-sm text-gray-700 mt-2">${allocation.notes}</p>` : ''}
+                        </div>
+                        <div class="flex space-x-2">
+                            <button onclick="loadAllocation('${allocation.id}')" class="knack-btn knack-btn-primary text-sm px-3 py-1">Load</button>
+                            <button onclick="downloadAllocation('${allocation.id}')" class="knack-btn knack-btn-secondary text-sm px-3 py-1">Download</button>
+                            <button onclick="deleteAllocationConfirm('${allocation.id}')" class="knack-btn knack-btn-danger text-sm px-3 py-1">Delete</button>
+                        </div>
+                    </div>
+                    <div class="mt-3 text-sm">
+                        <strong>Teams Staffed:</strong>
+                        ${Object.keys(allocation.allocations || {}).map(team => {
+                            const teamData = allocation.allocations[team];
+                            return `Team ${team}: ${teamData.allocated.length} allocated, ${teamData.backups.length} backups`;
+                        }).join(' | ')}
+                    </div>
+                `;
+                historyList.appendChild(historyDiv);
+            });
+        }
+
+        // Event Listeners
+        function initializeEventListeners() {
+            // Tab Management
+            document.querySelectorAll('.main-tab').forEach(tab => {
+                tab.addEventListener('click', function() {
+                    document.querySelectorAll('.main-tab').forEach(t => t.classList.remove('active'));
+                    document.querySelectorAll('.main-content').forEach(c => c.classList.remove('active'));
+                    
+                    this.classList.add('active');
+                    const tabName = this.dataset.tab;
+                    document.getElementById(`${tabName}-content`).classList.add('active');
+                    
+                    if (tabName === 'history') {
+                        loadHistory();
+                    }
+                });
+            });
+
+            // Agent Form
+            document.getElementById('addAgentBtn').addEventListener('click', () => {
+                showAgentForm();
+            });
+
+            document.getElementById('saveAgentBtn').addEventListener('click', async () => {
+                const agentData = {
+                    name: document.getElementById('agentName').value.trim(),
+                    role: document.getElementById('agentRole').value,
+                    skills: document.getElementById('agentSkills').value.split(',').map(s => s.trim()).filter(s => s),
+                    homeTeam: document.getElementById('agentHomeTeam').value,
+                    status: document.getElementById('agentStatus').value
+                };
+
+                if (!agentData.name || !agentData.role || !agentData.homeTeam) {
+                    showNotification('Please fill in all required fields', 'error');
+                    return;
+                }
+
+                await saveAgent(agentData);
+                hideAgentForm();
+            });
+
+            document.getElementById('cancelAgentBtn').addEventListener('click', () => {
+                hideAgentForm();
+            });
+
+            // Bulk Upload
+            document.getElementById('bulkUploadBtn').addEventListener('click', () => {
+                const fileInput = document.getElementById('bulkUploadFile');
+                const file = fileInput.files[0];
+                
+                if (!file) {
+                    showNotification('Please select an Excel file', 'error');
+                    return;
+                }
+
+                const reader = new FileReader();
+                reader.onload = async function(e) {
+                    try {
+                        const data = new Uint8Array(e.target.result);
+                        const workbook = XLSX.read(data, { type: 'array' });
+                        const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+                        const parsedData = XLSX.utils.sheet_to_json(worksheet);
+
+                        let importedCount = 0;
+                        for (const row of parsedData) {
+                            if (row.Name && row.Role && row['Home Team']) {
+                                const agentData = {
+                                    name: row.Name.trim(),
+                                    role: row.Role.trim(),
+                                    skills: (row.Skills || '').split(',').map(s => s.trim()).filter(s => s),
+                                    homeTeam: row['Home Team'].trim(),
+                                    status: row.Status?.trim() || 'Billable'
+                                };
+                                await saveAgent(agentData);
+                                importedCount++;
+                            }
+                        }
+                        
+                        showNotification(`Successfully imported ${importedCount} agents`, 'success');
+                        fileInput.value = '';
+                    } catch (error) {
+                        showNotification('Error importing file: ' + error.message, 'error');
+                    }
+                };
+                reader.readAsArrayBuffer(file);
+            });
+
+            // Export Agents
+            document.getElementById('exportAgentsBtn').addEventListener('click', () => {
+                if (agentsData.length === 0) {
+                    showNotification('No agents to export', 'error');
+                    return;
+                }
+
+                const exportData = agentsData.map(agent => ({
+                    'Name': agent.name,
+                    'Role': agent.role,
+                    'Skills': (agent.skills || []).join(', '),
+                    'Home Team': agent.homeTeam,
+                    'Status': agent.status
+                }));
+
+                const worksheet = XLSX.utils.json_to_sheet(exportData);
+                const workbook = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(workbook, worksheet, 'Agents');
+                
+                const today = new Date().toISOString().split('T')[0];
+                XLSX.writeFile(workbook, `Agents_Export_${today}.xlsx`);
+                showNotification('Agents exported successfully!', 'success');
+            });
+
+            // Allocation Controls
+            document.getElementById('allocateBtn').addEventListener('click', () => {
+                if (agentsData.length === 0) {
+                    showNotification('No agents loaded. Please add agents first.', 'error');
+                    return;
+                }
+                allocateAgents();
+            });
+
+            document.getElementById('saveAllocationBtn').addEventListener('click', () => {
+                if (Object.keys(currentAllocations).length === 0) {
+                    showNotification('No allocation to save. Please allocate agents first.', 'error');
+                    return;
+                }
+                showSaveModal();
+            });
+
+            document.getElementById('clearAllocationBtn').addEventListener('click', () => {
+                if (confirm('Are you sure you want to clear all allocations?')) {
+                    clearAllocations();
+                }
+            });
+
+            // Save Modal
+            document.querySelector('#saveModal .close').addEventListener('click', () => {
+                hideSaveModal();
+            });
+
+            document.getElementById('cancelSaveBtn').addEventListener('click', () => {
+                hideSaveModal();
+            });
+
+            document.getElementById('confirmSaveBtn').addEventListener('click', async () => {
+                const name = document.getElementById('allocationName').value.trim();
+                const date = document.getElementById('allocationDate').value;
+                const notes = document.getElementById('allocationNotes').value.trim();
+
+                if (!name || !date) {
+                    showNotification('Please fill in name and date', 'error');
+                    return;
+                }
+
+                const allocationData = {
+                    name: name,
+                    date: date,
+                    day: document.getElementById('daySelect').value,
+                    notes: notes,
+                    allocations: currentAllocations,
+                    requirements: teamRequirements[document.getElementById('daySelect').value],
+                    createdAt: new Date()
+                };
+
+                await saveAllocation(allocationData);
+                hideSaveModal();
+            });
+
+            // History
+            document.getElementById('refreshHistoryBtn').addEventListener('click', () => {
+                loadHistory();
+            });
+
+            // Day selector
+            document.getElementById('daySelect').addEventListener('change', () => {
+                clearAllocations();
+            });
+
+            // Set default date to today
+            const today = new Date().toISOString().split('T')[0];
+            document.getElementById('allocationDate').value = today;
+        }
+
+        // Agent Form Functions
+        function showAgentForm(agent = null) {
+            const form = document.getElementById('agentForm');
+            form.style.display = 'grid';
+            
+            if (agent) {
+                editingAgentId = agent.id;
+                form.classList.add('editing');
+                document.getElementById('agentName').value = agent.name;
+                document.getElementById('agentRole').value = agent.role;
+                document.getElementById('agentSkills').value = (agent.skills || []).join(', ');
+                document.getElementById('agentHomeTeam').value = agent.homeTeam;
+                document.getElementById('agentStatus').value = agent.status;
+            } else {
+                editingAgentId = null;
+                form.classList.remove('editing');
+                form.reset();
+            }
+        }
+
+        function hideAgentForm() {
+            const form = document.getElementById('agentForm');
+            form.style.display = 'none';
+            form.classList.remove('editing');
+            form.reset();
+            editingAgentId = null;
+        }
+
+        // Global functions for onclick handlers
+        window.editAgent = function(id) {
+            const agent = agentsData.find(a => a.id === id);
+            if (agent) {
+                showAgentForm(agent);
+            }
+        };
+
+        window.deleteAgentConfirm = function(id) {
+            const agent = agentsData.find(a => a.id === id);
+            if (agent && confirm(`Are you sure you want to delete ${agent.name}?`)) {
+                deleteAgent(id);
+            }
+        };
+
+        window.loadAllocation = async function(id) {
+            try {
+                const docSnap = await window.firestore.getDocs(
+                    window.firestore.query(
+                        window.firestore.collection(window.db, 'allocations'),
+                        window.firestore.where('__name__', '==', id)
+                    )
+                );
+                
+                if (!docSnap.empty) {
+                    const allocation = docSnap.docs[0].data();
+                    
+                    // Set the day
+                    document.getElementById('daySelect').value = allocation.day;
+                    
+                    // Clear current allocations
+                    clearAllocations();
+                    
+                    // Load the allocation
+                    currentAllocations = allocation.allocations || {};
+                    
+                    // Update agent states
+                    agentsData.forEach(agent => {
+                        agent.allocated = false;
+                        agent.allocatedTo = null;
+                    });
+
+                    Object.keys(currentAllocations).forEach(team => {
+                        currentAllocations[team].allocated.forEach(allocatedAgent => {
+                            const agent = agentsData.find(a => a.name === allocatedAgent.name);
+                            if (agent) {
+                                agent.allocated = true;
+                                agent.allocatedTo = `Team ${team}`;
+                            }
+                        });
+                        
+                        currentAllocations[team].backups.forEach(backupAgent => {
+                            const agent = agentsData.find(a => a.name === backupAgent.name);
+                            if (agent) {
+                                agent.allocated = true;
+                                agent.allocatedTo = `Team ${team} (Backup)`;
+                            }
+                        });
+                    });
+
+                    displayResults();
+                    displayAgentList();
+                    
+                    // Switch to allocation tab
+                    document.querySelector('[data-tab="allocation"]').click();
+                    
+                    showNotification('Allocation loaded successfully!', 'success');
+                } else {
+                    showNotification('Allocation not found', 'error');
+                }
+            } catch (error) {
+                console.error('Error loading allocation:', error);
+                showNotification('Error loading allocation: ' + error.message, 'error');
+            }
+        };
+
+        window.downloadAllocation = async function(id) {
+            try {
+                const docSnap = await window.firestore.getDocs(
+                    window.firestore.query(
+                        window.firestore.collection(window.db, 'allocations'),
+                        window.firestore.where('__name__', '==', id)
+                    )
+                );
+                
+                if (!docSnap.empty) {
+                    const allocation = docSnap.docs[0].data();
+                    
+                    // Create Excel data
+                    let allocationData = [];
+                    
+                    // Add requirements metadata
+                    Object.keys(allocation.requirements || {}).forEach(team => {
+                        allocationData.push({
+                            'Name': `REQUIREMENT_${team}`,
+                            'Role': 'METADATA',
+                            'Skills': allocation.requirements[team].toString(),
+                            'Home Team': allocation.day,
+                            'Status': 'REQUIREMENT',
+                            'Allocated Team': team,
+                            'Allocation Type': 'Requirement'
+                        });
+                    });
+
+                    // Add actual allocations
+                    Object.keys(allocation.allocations || {}).forEach(team => {
+                        allocation.allocations[team].allocated.forEach(agent => {
+                            allocationData.push({
+                                'Name': agent.name,
+                                'Role': agent.role,
+                                'Skills': (agent.skills || []).join(', '),
+                                'Home Team': agent.homeTeam,
+                                'Status': agent.status,
+                                'Allocated Team': team,
+                                'Allocation Type': 'Main'
+                            });
+                        });
+                        
+                        allocation.allocations[team].backups.forEach(agent => {
+                            allocationData.push({
+                                'Name': agent.name,
+                                'Role': agent.role,
+                                'Skills': (agent.skills || []).join(', '),
+                                'Home Team': agent.homeTeam,
+                                'Status': agent.status,
+                                'Allocated Team': team,
+                                'Allocation Type': 'Backup'
+                            });
+                        });
+                    });
+
+                    // Create workbook
+                    const worksheet = XLSX.utils.json_to_sheet(allocationData);
+                    const workbook = XLSX.utils.book_new();
+                    XLSX.utils.book_append_sheet(workbook, worksheet, `Staffing ${allocation.date}`);
+                    
+                    XLSX.writeFile(workbook, `${allocation.name.replace(/[^a-z0-9]/gi, '_')}_${allocation.date}.xlsx`);
+                    showNotification('Allocation downloaded successfully!', 'success');
+                } else {
+                    showNotification('Allocation not found', 'error');
+                }
+            } catch (error) {
+                console.error('Error downloading allocation:', error);
+                showNotification('Error downloading allocation: ' + error.message, 'error');
+            }
+        };
+
+        window.deleteAllocationConfirm = function(id) {
+            if (confirm('Are you sure you want to delete this allocation? This cannot be undone.')) {
+                deleteAllocation(id);
+            }
+        };
+
+        // Modal Functions
+        function showSaveModal() {
+            document.getElementById('saveModal').style.display = 'block';
+            // Set default name
+            const day = document.getElementById('daySelect').value;
+            const date = document.getElementById('allocationDate').value;
+            document.getElementById('allocationName').value = `${day.charAt(0).toUpperCase() + day.slice(1)} Staffing - ${date}`;
+        }
+
+        function hideSaveModal() {
+            document.getElementById('saveModal').style.display = 'none';
+            document.getElementById('allocationName').value = '';
+            document.getElementById('allocationNotes').value = '';
+        }
+
+        // Allocation Functions
+        function allocateAgents() {
+            const selectedDay = document.getElementById('daySelect').value;
+            const requirements = teamRequirements[selectedDay];
+            
+            // Reset all agents
+            agentsData.forEach(agent => {
+                agent.allocated = false;
+                agent.allocatedTo = null;
+            });
+
+            // Initialize allocations
+            currentAllocations = {};
+            Object.keys(requirements).forEach(team => {
+                currentAllocations[team] = { allocated: [], backups: [] };
+            });
+
+            // Filter available agents
+            const availableAgents = agentsData.filter(agent => 
+                !statusCategories.cannotAllocate.includes(agent.status)
+            );
+            const regularAgents = availableAgents.filter(agent => agent.role !== 'Lead Agent');
+            const leadAgents = availableAgents.filter(agent => agent.role === 'Lead Agent');
+
+            // Priority sorting
+            const statusPriority = { 'Billable': 1, 'Buffer': 3, 'Backfill': 2, 'UA': 4, 'RTWO': 5 };
+            regularAgents.sort((a, b) => (statusPriority[a.status] || 999) - (statusPriority[b.status] || 999));
+
+            // Allocate main agents
+            Object.keys(requirements).forEach(team => {
+                const required = requirements[team];
+                const teamAgents = regularAgents.filter(agent => 
+                    (agent.skills || []).includes(team) && !agent.allocated
+                ).sort((a, b) => {
+                    const aIsHomeTeam = a.homeTeam === `Team ${team}`;
+                    const bIsHomeTeam = b.homeTeam === `Team ${team}`;
+                    const aHasSingleSkill = (agent.skills || []).length === 1 && (agent.skills || [])[0] === team;
+                    const bHasSingleSkill = (agent.skills || []).length === 1 && (agent.skills || [])[0] === team;
+                    
+                    if (aIsHomeTeam && aHasSingleSkill && !(bIsHomeTeam && bHasSingleSkill)) return -1;
+                    if (bIsHomeTeam && bHasSingleSkill && !(aIsHomeTeam && aHasSingleSkill)) return 1;
+                    if (aIsHomeTeam && !bIsHomeTeam) return -1;
+                    if (bIsHomeTeam && !aIsHomeTeam) return 1;
+                    if (aHasSingleSkill && !bHasSingleSkill) return -1;
+                    if (bHasSingleSkill && !aHasSingleSkill) return 1;
+                    return 0;
+                });
+
+                // Allocate required agents
+                for (let i = 0; i < required && i < teamAgents.length; i++) {
+                    teamAgents[i].allocated = true;
+                    teamAgents[i].allocatedTo = `Team ${team}`;
+                    currentAllocations[team].allocated.push(teamAgents[i]);
+                }
+
+                // Allocate backups
+                const remainingAgents = teamAgents.slice(required).filter(agent => !agent.allocated);
+                const additionalAgents = regularAgents.filter(agent => 
+                    (agent.skills || []).includes(team) && !agent.allocated && !remainingAgents.includes(agent)
+                );
+                const backupCandidates = [...remainingAgents, ...additionalAgents];
+                
+                for (let i = 0; i < Math.min(2, backupCandidates.length); i++) {
+                    backupCandidates[i].allocated = true;
+                    backupCandidates[i].allocatedTo = `Team ${team} (Backup)`;
+                    currentAllocations[team].backups.push(backupCandidates[i]);
+                }
+            });
+
+            // Fill gaps with lead agents if needed
+            Object.keys(requirements).forEach(team => {
+                const required = requirements[team];
+                const currentAllocated = currentAllocations[team].allocated.length;
+                
+                if (currentAllocated < required) {
+                    const availableLeads = leadAgents.filter(agent => 
+                        (agent.skills || []).includes(team) && !agent.allocated
+                    );
+                    const needed = required - currentAllocated;
+                    
+                    for (let i = 0; i < Math.min(needed, availableLeads.length); i++) {
+                        availableLeads[i].allocated = true;
+                        availableLeads[i].allocatedTo = `Team ${team}`;
+                        currentAllocations[team].allocated.push(availableLeads[i]);
+                    }
+                }
+                
+                // Add lead backups if needed
+                const currentBackups = currentAllocations[team].backups.length;
+                if (currentBackups < 2) {
+                    const availableLeadsForBackup = leadAgents.filter(agent => 
+                        (agent.skills || []).includes(team) && !agent.allocated
+                    );
+                    const backupsNeeded = 2 - currentBackups;
+                    
+                    for (let i = 0; i < Math.min(backupsNeeded, availableLeadsForBackup.length); i++) {
+                        availableLeadsForBackup[i].allocated = true;
+                        availableLeadsForBackup[i].allocatedTo = `Team ${team} (Backup)`;
+                        currentAllocations[team].backups.push(availableLeadsForBackup[i]);
+                    }
+                }
+            });
+
+            displayResults();
+            displayAgentList();
+            showNotification('Agents allocated successfully!', 'success');
+        }
+
+        function clearAllocations() {
+            agentsData.forEach(agent => {
+                agent.allocated = false;
+                agent.allocatedTo = null;
+            });
+            currentAllocations = {};
+            document.getElementById('allocationResults').style.display = 'none';
+            document.getElementById('agentStatusList').style.display = 'none';
+        }
+
+        // Display Functions
+        function getStatusInfo(status) {
+            if (statusCategories.canAllocate.includes(status)) {
+                return { category: 'can-allocate', class: 'row-can-allocate' };
+            } else if (statusCategories.uncertain.includes(status)) {
+                return { category: 'uncertain', class: 'row-uncertain' };
+            } else if (statusCategories.cannotAllocate.includes(status)) {
+                return { category: 'cannot-allocate', class: 'row-cannot-allocate' };
+            } else {
+                return { category: 'uncertain', class: 'row-uncertain' };
+            }
+        }
+
+        function getTeamCardStatus(allocated, required, backups) {
+            if (allocated < required) {
+                return 'team-card-understaffed';
+            } else if (allocated === required && backups === 0) {
+                return 'team-card-complete-no-backups';
+            } else if (allocated === required && backups > 0) {
+                return 'team-card-complete-with-backups';
+            } else if (allocated > required) {
+                return 'team-card-overstaffed';
+            }
+            return '';
+        }
+
+        function getAgentStyling(agent, isBackup = false) {
+            const isUncertain = statusCategories.uncertain.includes(agent.status);
+            
+            if (isBackup) {
+                return isUncertain ? 'backup-uncertain' : 'backup';
+            } else {
+                return isUncertain ? 'allocated-uncertain' : 'allocated';
+            }
+        }
+
+        function displayResults() {
+            const teamAllocationsDiv = document.getElementById('teamAllocations');
+            teamAllocationsDiv.innerHTML = '';
+            
+            const selectedDay = document.getElementById('daySelect').value;
+            const requirements = teamRequirements[selectedDay];
+            
+            Object.keys(currentAllocations).forEach(team => {
+                const allocation = currentAllocations[team];
+                const required = requirements[team] || 0;
+                const allocated = allocation.allocated.length;
+                const backups = allocation.backups.length;
+                
+                const cardStatusClass = getTeamCardStatus(allocated, required, backups);
+                
+                const teamDiv = document.createElement('div');
+                teamDiv.className = 'bg-white rounded-lg shadow-lg overflow-hidden';
+                teamDiv.innerHTML = `
+                    <div class="${cardStatusClass} text-white p-3">
+                        <h3 class="text-lg font-bold">Team ${team}</h3>
+                        <p class="text-xs">Required: ${required} | Allocated: ${allocated}</p>
+                    </div>
+                    <div class="p-3">
+                        <div class="mb-3">
+                            <h4 class="font-semibold text-gray-700 mb-2 text-sm">Allocated (${allocated})</h4>
+                            <div class="drop-zone space-y-1" data-team="${team}" data-type="allocated">
+                                ${allocation.allocated.map(agent => {
+                                    const agentStyling = getAgentStyling(agent, false);
+                                    return `
+                                        <div class="text-xs p-2 rounded ${agentStyling} agent-item draggable" draggable="true" data-agent-name="${agent.name}" data-agent-skills="${(agent.skills || []).join(',')}" data-current-team="${team}" data-current-type="allocated">
+                                            <strong>${agent.name}</strong>
+                                            <span class="text-gray-600">(${agent.role} | ${agent.status})</span>
+                                        </div>
+                                    `;
+                                }).join('')}
+                            </div>
+                        </div>
+                        <div>
+                            <h4 class="font-semibold text-gray-700 mb-2 text-sm">Backups (${backups})</h4>
+                            <div class="drop-zone space-y-1" data-team="${team}" data-type="backup">
+                                ${allocation.backups.map(agent => {
+                                    const agentStyling = getAgentStyling(agent, true);
+                                    return `
+                                        <div class="text-xs p-2 rounded ${agentStyling} agent-item draggable" draggable="true" data-agent-name="${agent.name}" data-agent-skills="${(agent.skills || []).join(',')}" data-current-team="${team}" data-current-type="backup">
+                                            <strong>${agent.name}</strong>
+                                            <span class="text-gray-600">(${agent.role} | ${agent.status})</span>
+                                        </div>
+                                    `;
+                                }).join('')}
+                            </div>
+                        </div>
+                    </div>`;
+                teamAllocationsDiv.appendChild(teamDiv);
+            });
+            
+            addDragAndDropListeners();
+            document.getElementById('allocationResults').style.display = 'block';
+        }
+
+        function displayAgentList() {
+            const agentTableBody = document.getElementById('agentTableBody');
+            agentTableBody.innerHTML = '';
+            
+            agentsData.forEach(agent => {
+                const row = document.createElement('tr');
+                const isAllocated = agent.allocated;
+                const isBackup = agent.allocatedTo && agent.allocatedTo.includes('Backup');
+                let rowClass = isAllocated ? (isBackup ? 'backup' : 'allocated') : 'not-allocated';
+                
+                const statusInfo = getStatusInfo(agent.status);
+                
+                row.className = `${rowClass} ${statusInfo.class}`;
+                row.innerHTML = `
+                    <td class="py-2 px-3"><strong>${agent.name}</strong></td>
+                    <td class="py-2 px-3">${agent.role}</td>
+                    <td class="py-2 px-3">${(agent.skills || []).join(', ')}</td>
+                    <td class="py-2 px-3">${agent.homeTeam}</td>
+                    <td class="py-2 px-3">
+                        <select class="status-select" onchange="handleStatusChange('${agent.id}', this.value)">
+                            ${allStatusOptions.map(status => `
+                                <option value="${status}" ${agent.status === status ? 'selected' : ''}>${status}</option>
+                            `).join('')}
+                        </select>
+                    </td>
+                    <td class="py-2 px-3">
+                        ${isAllocated ? `<span class="font-semibold">${agent.allocatedTo}</span>` : ''}
+                        <select class="ml-2 px-2 py-1 text-xs border rounded" onchange="handleAllocationChange('${agent.id}', this.value)" ${statusCategories.cannotAllocate.includes(agent.status) ? 'disabled' : ''}>
+                            <option value="">Select Team...</option>
+                            ${(agent.skills || []).map(skill => `
+                                <option value="${skill}-allocated" ${agent.allocatedTo === `Team ${skill}` ? 'selected' : ''}>Team ${skill} (Main)</option>
+                                <option value="${skill}-backup" ${agent.allocatedTo === `Team ${skill} (Backup)` ? 'selected' : ''}>Team ${skill} (Backup)</option>
+                            `).join('')}
+                            <option value="unassign" ${!isAllocated ? 'selected' : ''}>Unassign</option>
+                        </select>
+                    </td>`;
+                agentTableBody.appendChild(row);
+            });
+            
+            document.getElementById('agentStatusList').style.display = 'block';
+        }
+
+        // Global handlers for inline events
+        window.handleStatusChange = async function(agentId, newStatus) {
+            const agent = agentsData.find(a => a.id === agentId);
+            if (agent) {
+                agent.status = newStatus;
+                
+                // Update in Firebase
+                try {
+                    await window.firestore.updateDoc(window.firestore.doc(window.db, 'agents', agentId), {
+                        status: newStatus
+                    });
+                    
+                    // If the agent was allocated but the new status means they can't be allocated,
+                    // remove them from allocations
+                    if (statusCategories.cannotAllocate.includes(newStatus) && agent.allocated) {
+                        updateAgentAllocation(agentId, null, null);
+                    }
+                    
+                    // Refresh displays
+                    if (Object.keys(currentAllocations).length > 0) {
+                        displayResults();
+                        displayAgentList();
+                    }
+                } catch (error) {
+                    console.error('Error updating agent status:', error);
+                    showNotification('Error updating status: ' + error.message, 'error');
+                }
+            }
+        };
+
+        window.handleAllocationChange = function(agentId, value) {
+            const [newTeam, newType] = value.split('-');
+            if (value === 'unassign') {
+                updateAgentAllocation(agentId, null, null);
+            } else {
+                updateAgentAllocation(agentId, newTeam, newType);
+            }
+        };
+
+        function updateAgentAllocation(agentId, newTeam, newType) {
+            const agentToMove = agentsData.find(a => a.id === agentId);
+            if (!agentToMove) return;
+
+            // Remove agent from their old team if they had one
+            if (agentToMove.allocatedTo) {
+                const oldTeamMatch = agentToMove.allocatedTo.match(/Team (\w+)/);
+                if (oldTeamMatch) {
+                    const oldTeam = oldTeamMatch[1];
+                    if (currentAllocations[oldTeam]) {
+                        currentAllocations[oldTeam].allocated = currentAllocations[oldTeam].allocated.filter(a => a.id !== agentId);
+                        currentAllocations[oldTeam].backups = currentAllocations[oldTeam].backups.filter(a => a.id !== agentId);
+                    }
+                }
+            }
+
+            // Unassign logic
+            if (!newTeam) {
+                agentToMove.allocated = false;
+                agentToMove.allocatedTo = null;
+            } else {
+                // Add agent to the new team
+                if (currentAllocations[newTeam]) {
+                    if (newType === 'allocated') {
+                        currentAllocations[newTeam].allocated.push(agentToMove);
+                        agentToMove.allocatedTo = `Team ${newTeam}`;
+                    } else if (newType === 'backup') {
+                        currentAllocations[newTeam].backups.push(agentToMove);
+                        agentToMove.allocatedTo = `Team ${newTeam} (Backup)`;
+                    }
+                    agentToMove.allocated = true;
+                }
+            }
+            
+            displayResults();
+            displayAgentList();
+        }
+
+        // Drag and Drop
+        let draggedAgent = null;
+
+        function addDragAndDropListeners() {
+            document.querySelectorAll('.draggable').forEach(item => {
+                item.addEventListener('dragstart', handleDragStart);
+                item.addEventListener('dragend', handleDragEnd);
+            });
+            document.querySelectorAll('.drop-zone').forEach(zone => {
+                zone.addEventListener('dragover', handleDragOver);
+                zone.addEventListener('dragenter', handleDragEnter);
+                zone.addEventListener('dragleave', handleDragLeave);
+                zone.addEventListener('drop', handleDrop);
+            });
+        }
+
+        function handleDragStart(e) {
+            draggedAgent = e.target;
+            e.target.classList.add('dragging');
+            e.dataTransfer.effectAllowed = 'move';
+        }
+
+        function handleDragEnd(e) {
+            e.target.classList.remove('dragging');
+            document.querySelectorAll('.drop-zone').forEach(z => z.classList.remove('drag-over', 'invalid-drop'));
+        }
+
+        function handleDragOver(e) {
+            e.preventDefault();
+            const dropZone = e.target.closest('.drop-zone');
+            if (!dropZone) return;
+
+            const agentSkills = draggedAgent.dataset.agentSkills.split(',');
+            const targetTeam = dropZone.dataset.team;
+
+            if (agentSkills.includes(targetTeam)) {
+                dropZone.classList.remove('invalid-drop');
+                dropZone.classList.add('drag-over');
+            } else {
+                dropZone.classList.remove('drag-over');
+                dropZone.classList.add('invalid-drop');
+            }
+        }
+
+        function handleDragEnter(e) {
+            const dropZone = e.target.closest('.drop-zone');
+            if (dropZone) {
+                const agentSkills = draggedAgent.dataset.agentSkills.split(',');
+                const targetTeam = dropZone.dataset.team;
+                if (agentSkills.includes(targetTeam)) {
+                    dropZone.classList.add('drag-over');
+                } else {
+                    dropZone.classList.add('invalid-drop');
+                }
+            }
+        }
+
+        function handleDragLeave(e) {
+            const dropZone = e.target.closest('.drop-zone');
+            if(dropZone) dropZone.classList.remove('drag-over', 'invalid-drop');
+        }
+
+        function handleDrop(e) {
+            e.preventDefault();
+            const dropZone = e.target.closest('.drop-zone');
+            if (!dropZone) return;
+            
+            dropZone.classList.remove('drag-over', 'invalid-drop');
+            
+            const agentName = draggedAgent.dataset.agentName;
+            const agentSkills = draggedAgent.dataset.agentSkills.split(',');
+            
+            const newTeam = dropZone.dataset.team;
+            const newType = dropZone.dataset.type;
+
+            if (!agentSkills.includes(newTeam)) {
+                showNotification(`Cannot move ${agentName} to Team ${newTeam}. Agent does not have the required skill.`, 'error');
+                return;
+            }
+
+            // Find agent by name
+            const agent = agentsData.find(a => a.name === agentName);
+            if (agent) {
+                updateAgentAllocation(agent.id, newTeam, newType);
+            }
+        }
+
+    </script>
+</body>
+</html>
