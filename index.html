@@ -226,14 +226,14 @@
 
         // Status categorization for allocation and display
         const statusCategories = {
-            canAllocate: ['On Phone', 'Buffer', 'Backfill'],
+            canAllocate: ['Billable', 'Buffer', 'Backfill'],
             uncertain: ['UA', 'RTWO'],
             cannotAllocate: ['Not FTW', 'SL', 'PTO', 'VTO', 'Bereavement']
         };
 
         // All possible status options
         const allStatusOptions = [
-            'On Phone', 'Buffer', 'Backfill', 'UA', 'RTWO', 
+            'Billable', 'Buffer', 'Backfill', 'UA', 'RTWO', 
             'Not FTW', 'SL', 'PTO', 'VTO', 'Bereavement'
         ];
 
@@ -726,7 +726,7 @@
             const availableAgents = agentsData.filter(agent => !statusCategories.cannotAllocate.includes(agent.status));
             const regularAgents = availableAgents.filter(agent => agent.role !== 'Lead Agent');
             const leadAgents = availableAgents.filter(agent => agent.role === 'Lead Agent');
-            const statusPriority = { 'On Phone': 1, 'Buffer': 2, 'Backfill': 3, 'UA': 4, 'RTWO': 5 };
+            const statusPriority = { 'Billable': 1, 'Buffer': 3, 'Backfill': 2, 'UA': 4, 'RTWO': 5 };
             regularAgents.sort((a, b) => (statusPriority[a.status] || 999) - (statusPriority[b.status] || 999));
 
             Object.keys(requirements).forEach(team => {
