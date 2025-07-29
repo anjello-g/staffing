@@ -10,16 +10,18 @@
     <!-- Firebase SDK -->
     <script type="module">
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
-        import { getFirestore, collection, addDoc, getDocs, doc, updateDoc, deleteDoc, query, orderBy, limit } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
+        import { getFirestore, collection, addDoc, getDocs, doc, updateDoc, deleteDoc, query, orderBy, limit, where } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
         
-        // Your Firebase config - REPLACE WITH YOUR ACTUAL CONFIG
+        // Your Firebase Configuration
         const firebaseConfig = {
-            apiKey: "your-api-key",
-            authDomain: "your-auth-domain",
-            projectId: "your-project-id",
-            storageBucket: "your-storage-bucket",
-            messagingSenderId: "your-messaging-sender-id",
-            appId: "your-app-id"
+            apiKey: "AIzaSyD4r9CQ0zHTYAL_HFaN9cMnT4YYTp9UdFA",
+            authDomain: "staffing-b0f2c.firebaseapp.com",
+            databaseURL: "https://staffing-b0f2c-default-rtdb.firebaseio.com",
+            projectId: "staffing-b0f2c",
+            storageBucket: "staffing-b0f2c.firebasestorage.app",
+            messagingSenderId: "522194743400",
+            appId: "1:522194743400:web:9ab0036e2cb6eed59c0bdd",
+            measurementId: "G-7E41HPQ5NN"
         };
         
         const app = initializeApp(firebaseConfig);
@@ -43,6 +45,9 @@
         .not-allocated { background-color: #ffffff; border-left: 4px solid #f59e0b; }
         .backup { background-color: #dbeafe; border-left: 4px solid #60a5fa; }
         .backup-uncertain { background-color: #fef3c7; border-left: 4px solid #f59e0b; }
+        
+        /* Backfill agent styling - blue color */
+        .agent-backfill { background-color: #bfdbfe; border-left: 4px solid #3b82f6; }
         
         /* Team card border status indicators */
         .team-card-understaffed { background: #ef4444; box-shadow: 0 0 12px rgba(239, 68, 68, 0.3); }
@@ -91,11 +96,19 @@
         .agent-form { display: grid; grid-template-columns: 1fr 1fr 2fr 1fr 1fr auto; gap: 1rem; align-items: center; padding: 1rem; border: 1px solid #e5e7eb; border-radius: 0.5rem; margin-bottom: 1rem; }
         .agent-form.editing { background-color: #fef3c7; }
         
-        .history-item { padding: 1rem; border: 1px solid #e5e7eb; border-radius: 0.5rem; margin-bottom: 1rem; background: white; }
+        .settings-form { display: grid; grid-template-columns: auto 1fr 1fr 1fr 1fr 1fr 1fr; gap: 1rem; align-items: center; padding: 1rem; border: 1px solid #e5e7eb; border-radius: 0.5rem; margin-bottom: 1rem; }
+        
+        .history-item { padding: 1rem; border: 1px solid #e5e7eb; border-radius: 0.5rem; margin-bottom: 1rem; background: white; position: relative; }
         .history-item:hover { box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
         
+        .history-table { margin-top: 1rem; background: #f9fafb; border-radius: 0.5rem; overflow: hidden; }
+        .history-table table { width: 100%; font-size: 0.875rem; }
+        .history-table th { background: #374151; color: white; padding: 0.5rem; text-align: left; }
+        .history-table td { padding: 0.5rem; border-bottom: 1px solid #e5e7eb; }
+        .history-table .team-header-cell { background: var(--knack-blue); color: white; font-weight: bold; }
+        
         .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); }
-        .modal-content { background-color: white; margin: 15% auto; padding: 20px; border-radius: 10px; width: 80%; max-width: 500px; }
+        .modal-content { background-color: white; margin: 5% auto; padding: 20px; border-radius: 10px; width: 90%; max-width: 800px; max-height: 80vh; overflow-y: auto; }
         .close { color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer; }
         .close:hover { color: black; }
         
@@ -108,8 +121,7 @@
 
     <div class="knack-header">
         <div class="max-w-7xl mx-auto px-4">
-            <h1 class="text-4xl font-bold text-center text-white">Forefront SCE Staffing - Firebase</h1>
-            <p class="text-center text-white/80 mt-2">Manage agents and staffing allocations in real-time</p>
+            <h1 class="text-4xl font-bold text-center text-white">Forefront SCE Staffing</h1>
         </div>
     </div>
 
@@ -120,6 +132,7 @@
                 <div class="flex">
                     <div class="main-tab active" data-tab="agents">Manage Agents</div>
                     <div class="main-tab" data-tab="allocation">Staffing Allocation</div>
+                    <div class="main-tab" data-tab="settings">Settings</div>
                     <div class="main-tab" data-tab="history">Staffing History</div>
                 </div>
             </div>
@@ -139,7 +152,7 @@
                             <option value="">Select Role</option>
                             <option value="Agent">Agent</option>
                             <option value="Lead Agent">Lead Agent</option>
-                            <option value="Senior Agent">Senior Agent</option>
+                            <option value="Team Leader">Team Leader</option>
                         </select>
                         <input type="text" id="agentSkills" placeholder="Skills (A, B, C, E, F, G - comma separated)">
                         <select id="agentHomeTeam">
@@ -233,11 +246,32 @@
                 </div>
             </div>
 
+            <!-- Settings Tab -->
+            <div id="settings-content" class="main-content">
+                <div class="mb-6">
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="text-xl font-bold">Team Requirements Settings</h2>
+                        <button id="saveSettingsBtn" class="knack-btn knack-btn-primary">Save Settings</button>
+                    </div>
+                    
+                    <div class="bg-white rounded-lg shadow-lg p-6">
+                        <p class="text-gray-600 mb-4">Configure the number of required agents for each team by day.</p>
+                        
+                        <div id="settingsForm">
+                            <!-- Settings will be populated by JavaScript -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- Staffing History Tab -->
             <div id="history-content" class="main-content">
                 <div class="flex justify-between items-center mb-6">
                     <h2 class="text-xl font-bold">Staffing History</h2>
-                    <button id="refreshHistoryBtn" class="knack-btn knack-btn-primary">Refresh</button>
+                    <div class="flex space-x-2">
+                        <button id="downloadAllHistoryBtn" class="knack-btn knack-btn-secondary">Download All History</button>
+                        <button id="refreshHistoryBtn" class="knack-btn knack-btn-primary">Refresh</button>
+                    </div>
                 </div>
                 <div id="historyList" class="space-y-4"></div>
             </div>
@@ -273,9 +307,10 @@
         let agentsData = [];
         let currentAllocations = {};
         let editingAgentId = null;
+        let allHistoryData = [];
 
-        // Team Requirements
-        const teamRequirements = {
+        // Default Team Requirements - will be loaded from Firebase
+        let teamRequirements = {
             monday: { A: 7, B: 5, C: 15, E: 11, F: 8, G: 8 },
             tuesday: { A: 2, B: 5, C: 13, E: 11, F: 8, G: 6 },
             wednesday: { A: 2, B: 5, C: 13, E: 11, F: 8, G: 6 },
@@ -295,13 +330,18 @@
             'Not FTW', 'SL', 'PTO', 'VTO', 'Bereavement'
         ];
 
+        const teams = ['A', 'B', 'C', 'E', 'F', 'G'];
+        const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'];
+
         // Wait for Firebase to load
         window.addEventListener('load', async function() {
             // Add a small delay to ensure Firebase is fully loaded
             setTimeout(async () => {
                 if (window.db && window.firestore) {
+                    await loadSettings();
                     await loadAgents();
                     initializeEventListeners();
+                    populateSettingsForm();
                 } else {
                     console.error('Firebase not loaded properly');
                     document.body.innerHTML = '<div class="text-center p-8"><h1 class="text-2xl text-red-600">Firebase Configuration Required</h1><p class="mt-4">Please update the Firebase configuration in the script section with your actual Firebase project credentials.</p></div>';
@@ -324,6 +364,37 @@
                 console.error('Error loading agents:', error);
                 showNotification('Error loading agents: ' + error.message, 'error');
                 showLoading(false);
+            }
+        }
+
+        async function loadSettings() {
+            try {
+                const querySnapshot = await window.firestore.getDocs(window.firestore.collection(window.db, 'settings'));
+                querySnapshot.forEach((doc) => {
+                    if (doc.id === 'teamRequirements') {
+                        teamRequirements = doc.data();
+                    }
+                });
+            } catch (error) {
+                console.error('Error loading settings:', error);
+                // Use default settings if loading fails
+            }
+        }
+
+        async function saveSettings() {
+            try {
+                const settingsRef = window.firestore.doc(window.db, 'settings', 'teamRequirements');
+                await window.firestore.updateDoc(settingsRef, teamRequirements).catch(async () => {
+                    // If document doesn't exist, create it
+                    await window.firestore.addDoc(window.firestore.collection(window.db, 'settings'), {
+                        ...teamRequirements,
+                        id: 'teamRequirements'
+                    });
+                });
+                showNotification('Settings saved successfully!', 'success');
+            } catch (error) {
+                console.error('Error saving settings:', error);
+                showNotification('Error saving settings: ' + error.message, 'error');
             }
         }
 
@@ -373,11 +444,11 @@
                     window.firestore.limit(50)
                 );
                 const querySnapshot = await window.firestore.getDocs(q);
-                const historyData = [];
+                allHistoryData = [];
                 querySnapshot.forEach((doc) => {
-                    historyData.push({ id: doc.id, ...doc.data() });
+                    allHistoryData.push({ id: doc.id, ...doc.data() });
                 });
-                displayHistory(historyData);
+                displayHistory(allHistoryData);
                 showLoading(false);
             } catch (error) {
                 console.error('Error loading history:', error);
@@ -420,6 +491,33 @@
             }, 3000);
         }
 
+        function populateSettingsForm() {
+            const settingsForm = document.getElementById('settingsForm');
+            
+            // Create header row
+            let headerHTML = '<div class="settings-form"><div class="font-bold">Day</div>';
+            teams.forEach(team => {
+                headerHTML += `<div class="font-bold text-center">Team ${team}</div>`;
+            });
+            headerHTML += '</div>';
+
+            // Create rows for each day
+            let formHTML = headerHTML;
+            days.forEach(day => {
+                formHTML += `<div class="settings-form">
+                    <div class="font-semibold capitalize">${day}</div>`;
+                teams.forEach(team => {
+                    formHTML += `<input type="number" min="0" max="50" 
+                        value="${teamRequirements[day][team] || 0}" 
+                        class="text-center border rounded px-2 py-1" 
+                        data-day="${day}" data-team="${team}">`;
+                });
+                formHTML += '</div>';
+            });
+
+            settingsForm.innerHTML = formHTML;
+        }
+
         function displayAgentsList() {
             const agentsList = document.getElementById('agentsList');
             agentsList.innerHTML = '';
@@ -452,6 +550,82 @@
             if (statusCategories.uncertain.includes(status)) return 'bg-yellow-100 text-yellow-800';
             if (statusCategories.cannotAllocate.includes(status)) return 'bg-red-100 text-red-800';
             return 'bg-gray-100 text-gray-800';
+        }
+
+        function createHistoryTable(allocation) {
+            const teams = Object.keys(allocation.allocations || {}).sort();
+            if (teams.length === 0) return '';
+
+            let tableHTML = '<div class="history-table"><table>';
+            
+            // Header row
+            tableHTML += '<thead><tr><th>Agent Name</th><th>Role</th><th>Skills</th><th>Home Team</th><th>Status</th>';
+            teams.forEach(team => {
+                tableHTML += `<th class="team-header-cell">Team ${team}</th>`;
+            });
+            tableHTML += '</tr></thead><tbody>';
+
+            // Collect all agents
+            const allAgents = new Set();
+            teams.forEach(team => {
+                allocation.allocations[team].allocated.forEach(agent => allAgents.add(JSON.stringify(agent)));
+                allocation.allocations[team].backups.forEach(agent => allAgents.add(JSON.stringify(agent)));
+            });
+
+            // Convert back to objects and sort
+            const sortedAgents = Array.from(allAgents).map(agentStr => JSON.parse(agentStr))
+                .sort((a, b) => a.name.localeCompare(b.name));
+
+            // Create rows
+            sortedAgents.forEach(agent => {
+                tableHTML += `<tr>
+                    <td><strong>${agent.name}</strong></td>
+                    <td>${agent.role}</td>
+                    <td>${(agent.skills || []).join(', ')}</td>
+                    <td>${agent.homeTeam}</td>
+                    <td><span class="px-2 py-1 rounded text-xs ${getStatusClass(agent.status)}">${agent.status}</span></td>`;
+                
+                teams.forEach(team => {
+                    const isAllocated = allocation.allocations[team].allocated.some(a => a.name === agent.name);
+                    const isBackup = allocation.allocations[team].backups.some(a => a.name === agent.name);
+                    
+                    if (isAllocated) {
+                        tableHTML += '<td class="text-center bg-green-100 text-green-800 font-bold">✓ Main</td>';
+                    } else if (isBackup) {
+                        tableHTML += '<td class="text-center bg-blue-100 text-blue-800 font-bold">✓ Backup</td>';
+                    } else {
+                        tableHTML += '<td class="text-center text-gray-400">-</td>';
+                    }
+                });
+                
+                tableHTML += '</tr>';
+            });
+
+            // Requirements row
+            tableHTML += '<tr class="border-t-2 border-gray-400"><td colspan="5" class="font-bold bg-gray-100">Requirements</td>';
+            teams.forEach(team => {
+                const requirement = allocation.requirements ? allocation.requirements[team] || 0 : 0;
+                tableHTML += `<td class="text-center font-bold bg-gray-100">${requirement}</td>`;
+            });
+            tableHTML += '</tr>';
+
+            // Summary rows
+            tableHTML += '<tr><td colspan="5" class="font-bold bg-blue-50">Allocated Count</td>';
+            teams.forEach(team => {
+                const count = allocation.allocations[team].allocated.length;
+                tableHTML += `<td class="text-center font-bold bg-blue-50">${count}</td>`;
+            });
+            tableHTML += '</tr>';
+
+            tableHTML += '<tr><td colspan="5" class="font-bold bg-green-50">Backup Count</td>';
+            teams.forEach(team => {
+                const count = allocation.allocations[team].backups.length;
+                tableHTML += `<td class="text-center font-bold bg-green-50">${count}</td>`;
+            });
+            tableHTML += '</tr>';
+
+            tableHTML += '</tbody></table></div>';
+            return tableHTML;
         }
 
         function displayHistory(historyData) {
@@ -488,6 +662,7 @@
                             return `Team ${team}: ${teamData.allocated.length} allocated, ${teamData.backups.length} backups`;
                         }).join(' | ')}
                     </div>
+                    ${createHistoryTable(allocation)}
                 `;
                 historyList.appendChild(historyDiv);
             });
@@ -536,6 +711,21 @@
 
             document.getElementById('cancelAgentBtn').addEventListener('click', () => {
                 hideAgentForm();
+            });
+
+            // Settings
+            document.getElementById('saveSettingsBtn').addEventListener('click', async () => {
+                // Update teamRequirements from form inputs
+                days.forEach(day => {
+                    teams.forEach(team => {
+                        const input = document.querySelector(`input[data-day="${day}"][data-team="${team}"]`);
+                        if (input) {
+                            teamRequirements[day][team] = parseInt(input.value) || 0;
+                        }
+                    });
+                });
+                
+                await saveSettings();
             });
 
             // Bulk Upload
@@ -604,6 +794,110 @@
                 showNotification('Agents exported successfully!', 'success');
             });
 
+            // Download All History
+            document.getElementById('downloadAllHistoryBtn').addEventListener('click', () => {
+    if (allHistoryData.length === 0) {
+        showNotification('No history data to export', 'error');
+        return;
+    }
+
+    const workbook = XLSX.utils.book_new();
+
+    allHistoryData.forEach((allocation, index) => {
+        const teams = Object.keys(allocation.allocations || {}).sort();
+        
+        if (teams.length === 0) return;
+        
+        let excelData = [];
+        
+        // Header row
+        let headerRow = {
+            'Agent Name': 'Agent Name',
+            'Role': 'Role', 
+            'Skills': 'Skills',
+            'Home Team': 'Home Team',
+            'Status': 'Status'
+        };
+        teams.forEach(team => {
+            headerRow[`Team ${team}`] = `Team ${team}`;
+        });
+        excelData.push(headerRow);
+        
+        // Create rows for each team's agents (allocated first, then backups)
+        const maxAgentsPerTeam = Math.max(...teams.map(team => 
+            allocation.allocations[team].allocated.length + allocation.allocations[team].backups.length
+        ));
+        
+        for (let i = 0; i < maxAgentsPerTeam; i++) {
+            let agentRow = {
+                'Agent Name': '',
+                'Role': '',
+                'Skills': '',
+                'Home Team': '',
+                'Status': ''
+            };
+            
+            teams.forEach(team => {
+                const teamData = allocation.allocations[team];
+                const allTeamAgents = [...teamData.allocated, ...teamData.backups];
+                
+                if (i < allTeamAgents.length) {
+                    agentRow[`Team ${team}`] = allTeamAgents[i].name;
+                } else {
+                    agentRow[`Team ${team}`] = '';
+                }
+            });
+            
+            excelData.push(agentRow);
+        }
+        
+        // Add requirement row
+        let requirementRow = {
+            'Agent Name': 'REQUIREMENTS',
+            'Role': '',
+            'Skills': '',
+            'Home Team': '',
+            'Status': ''
+        };
+        teams.forEach(team => {
+            requirementRow[`Team ${team}`] = allocation.requirements ? allocation.requirements[team] || 0 : 0;
+        });
+        excelData.push(requirementRow);
+        
+        // Add summary rows
+        let allocatedCountRow = {
+            'Agent Name': 'ALLOCATED COUNT',
+            'Role': '',
+            'Skills': '',
+            'Home Team': '',
+            'Status': ''
+        };
+        teams.forEach(team => {
+            allocatedCountRow[`Team ${team}`] = allocation.allocations[team].allocated.length;
+        });
+        excelData.push(allocatedCountRow);
+        
+        let backupCountRow = {
+            'Agent Name': 'BACKUP COUNT',
+            'Role': '',
+            'Skills': '',
+            'Home Team': '',
+            'Status': ''
+        };
+        teams.forEach(team => {
+            backupCountRow[`Team ${team}`] = allocation.allocations[team].backups.length;
+        });
+        excelData.push(backupCountRow);
+
+        const worksheet = XLSX.utils.json_to_sheet(excelData);
+        const sheetName = `${allocation.date}_${allocation.day}`.substring(0, 31);
+        XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+    });
+
+    const today = new Date().toISOString().split('T')[0];
+    XLSX.writeFile(workbook, `All_Staffing_History_${today}.xlsx`);
+    showNotification('All history exported successfully!', 'success');
+});
             // Allocation Controls
             document.getElementById('allocateBtn').addEventListener('click', () => {
                 if (agentsData.length === 0) {
@@ -720,16 +1014,16 @@
 
         window.loadAllocation = async function(id) {
             try {
-                const docSnap = await window.firestore.getDocs(
-                    window.firestore.query(
-                        window.firestore.collection(window.db, 'allocations'),
-                        window.firestore.where('__name__', '==', id)
-                    )
-                );
+                const docSnap = await window.firestore.getDocs(window.firestore.collection(window.db, 'allocations'));
                 
-                if (!docSnap.empty) {
-                    const allocation = docSnap.docs[0].data();
-                    
+                let allocation = null;
+                docSnap.forEach((doc) => {
+                    if (doc.id === id) {
+                        allocation = doc.data();
+                    }
+                });
+                
+                if (allocation) {
                     // Set the day
                     document.getElementById('daySelect').value = allocation.day;
                     
@@ -779,78 +1073,123 @@
             }
         };
 
-        window.downloadAllocation = async function(id) {
-            try {
-                const docSnap = await window.firestore.getDocs(
-                    window.firestore.query(
-                        window.firestore.collection(window.db, 'allocations'),
-                        window.firestore.where('__name__', '==', id)
-                    )
-                );
-                
-                if (!docSnap.empty) {
-                    const allocation = docSnap.docs[0].data();
-                    
-                    // Create Excel data
-                    let allocationData = [];
-                    
-                    // Add requirements metadata
-                    Object.keys(allocation.requirements || {}).forEach(team => {
-                        allocationData.push({
-                            'Name': `REQUIREMENT_${team}`,
-                            'Role': 'METADATA',
-                            'Skills': allocation.requirements[team].toString(),
-                            'Home Team': allocation.day,
-                            'Status': 'REQUIREMENT',
-                            'Allocated Team': team,
-                            'Allocation Type': 'Requirement'
-                        });
-                    });
-
-                    // Add actual allocations
-                    Object.keys(allocation.allocations || {}).forEach(team => {
-                        allocation.allocations[team].allocated.forEach(agent => {
-                            allocationData.push({
-                                'Name': agent.name,
-                                'Role': agent.role,
-                                'Skills': (agent.skills || []).join(', '),
-                                'Home Team': agent.homeTeam,
-                                'Status': agent.status,
-                                'Allocated Team': team,
-                                'Allocation Type': 'Main'
-                            });
-                        });
-                        
-                        allocation.allocations[team].backups.forEach(agent => {
-                            allocationData.push({
-                                'Name': agent.name,
-                                'Role': agent.role,
-                                'Skills': (agent.skills || []).join(', '),
-                                'Home Team': agent.homeTeam,
-                                'Status': agent.status,
-                                'Allocated Team': team,
-                                'Allocation Type': 'Backup'
-                            });
-                        });
-                    });
-
-                    // Create workbook
-                    const worksheet = XLSX.utils.json_to_sheet(allocationData);
-                    const workbook = XLSX.utils.book_new();
-                    XLSX.utils.book_append_sheet(workbook, worksheet, `Staffing ${allocation.date}`);
-                    
-                    XLSX.writeFile(workbook, `${allocation.name.replace(/[^a-z0-9]/gi, '_')}_${allocation.date}.xlsx`);
-                    showNotification('Allocation downloaded successfully!', 'success');
-                } else {
-                    showNotification('Allocation not found', 'error');
-                }
-            } catch (error) {
-                console.error('Error downloading allocation:', error);
-                showNotification('Error downloading allocation: ' + error.message, 'error');
+      // Replace the downloadAllocation function
+window.downloadAllocation = async function(id) {
+    try {
+        const docSnap = await window.firestore.getDocs(window.firestore.collection(window.db, 'allocations'));
+        
+        let allocation = null;
+        docSnap.forEach((doc) => {
+            if (doc.id === id) {
+                allocation = doc.data();
             }
-        };
+        });
+        
+        if (allocation) {
+            const teams = Object.keys(allocation.allocations || {}).sort();
+            
+            // Create table format similar to your image
+            let excelData = [];
+            
+            // Header row
+            let headerRow = {
+                'Agent Name': 'Agent Name',
+                'Role': 'Role', 
+                'Skills': 'Skills',
+                'Home Team': 'Home Team',
+                'Status': 'Status'
+            };
+            teams.forEach(team => {
+                headerRow[`Team ${team}`] = `Team ${team}`;
+            });
+            excelData.push(headerRow);
+            
 
-        window.deleteAllocationConfirm = function(id) {
+            
+            // Create rows for each team's agents (allocated first, then backups)
+            const maxAgentsPerTeam = Math.max(...teams.map(team => 
+                allocation.allocations[team].allocated.length + allocation.allocations[team].backups.length
+            ));
+            
+            for (let i = 0; i < maxAgentsPerTeam; i++) {
+                let agentRow = {
+                    'Agent Name': '',
+                    'Role': '',
+                    'Skills': '',
+                    'Home Team': '',
+                    'Status': ''
+                };
+                
+                teams.forEach(team => {
+                    const teamData = allocation.allocations[team];
+                    const allTeamAgents = [...teamData.allocated, ...teamData.backups];
+                    
+                    if (i < allTeamAgents.length) {
+                        agentRow[`Team ${team}`] = allTeamAgents[i].name;
+                    } else {
+                        agentRow[`Team ${team}`] = '';
+                    }
+                });
+                
+                excelData.push(agentRow);
+            }
+            
+            // Add requirement row
+            let requirementRow = {
+                'Agent Name': 'REQUIREMENTS',
+                'Role': '',
+                'Skills': '',
+                'Home Team': '',
+                'Status': ''
+            };
+            teams.forEach(team => {
+                requirementRow[`Team ${team}`] = allocation.requirements ? allocation.requirements[team] || 0 : 0;
+            });
+            excelData.push(requirementRow);
+            
+            // Add summary rows
+            let allocatedCountRow = {
+                'Agent Name': 'ALLOCATED COUNT',
+                'Role': '',
+                'Skills': '',
+                'Home Team': '',
+                'Status': ''
+            };
+            teams.forEach(team => {
+                allocatedCountRow[`Team ${team}`] = allocation.allocations[team].allocated.length;
+            });
+            excelData.push(allocatedCountRow);
+            
+            let backupCountRow = {
+                'Agent Name': 'BACKUP COUNT',
+                'Role': '',
+                'Skills': '',
+                'Home Team': '',
+                'Status': ''
+            };
+            teams.forEach(team => {
+                backupCountRow[`Team ${team}`] = allocation.allocations[team].backups.length;
+            });
+            excelData.push(backupCountRow);
+
+            // Create workbook
+            const worksheet = XLSX.utils.json_to_sheet(excelData);
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, `Staffing ${allocation.date}`);
+            
+            XLSX.writeFile(workbook, `${allocation.name.replace(/[^a-z0-9]/gi, '_')}_${allocation.date}.xlsx`);
+            showNotification('Allocation downloaded successfully!', 'success');
+        } else {
+            showNotification('Allocation not found', 'error');
+        }
+    } catch (error) {
+        console.error('Error downloading allocation:', error);
+        showNotification('Error downloading allocation: ' + error.message, 'error');
+    }
+};
+
+   
+window.deleteAllocationConfirm = function(id) {
             if (confirm('Are you sure you want to delete this allocation? This cannot be undone.')) {
                 deleteAllocation(id);
             }
@@ -907,8 +1246,8 @@
                 ).sort((a, b) => {
                     const aIsHomeTeam = a.homeTeam === `Team ${team}`;
                     const bIsHomeTeam = b.homeTeam === `Team ${team}`;
-                    const aHasSingleSkill = (agent.skills || []).length === 1 && (agent.skills || [])[0] === team;
-                    const bHasSingleSkill = (agent.skills || []).length === 1 && (agent.skills || [])[0] === team;
+                    const aHasSingleSkill = (a.skills || []).length === 1 && (a.skills || [])[0] === team;
+                    const bHasSingleSkill = (b.skills || []).length === 1 && (b.skills || [])[0] === team;
                     
                     if (aIsHomeTeam && aHasSingleSkill && !(bIsHomeTeam && bHasSingleSkill)) return -1;
                     if (bIsHomeTeam && bHasSingleSkill && !(aIsHomeTeam && aHasSingleSkill)) return 1;
@@ -989,6 +1328,7 @@
             document.getElementById('agentStatusList').style.display = 'none';
         }
 
+    
         // Display Functions
         function getStatusInfo(status) {
             if (statusCategories.canAllocate.includes(status)) {
